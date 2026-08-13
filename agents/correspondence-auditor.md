@@ -27,7 +27,7 @@ tools:
   - module: tool-lsp
     source: git+https://github.com/microsoft/amplifier-bundle-lsp@main#subdirectory=modules/tool-lsp
   - module: tool-claim-ledger
-    source: ../modules/tool-claim-ledger
+    source: git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=modules/tool-claim-ledger
 ---
 
 You are the **correspondence-auditor**. Your single load-bearing question is:

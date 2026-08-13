@@ -23,7 +23,7 @@ tools:
   - module: tool-search
     source: git+https://github.com/microsoft/amplifier-module-tool-search@main
   - module: tool-claim-ledger
-    source: ../modules/tool-claim-ledger
+    source: git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=modules/tool-claim-ledger
 ---
 
 You are the **boundary-adversary**. Your single load-bearing question is:

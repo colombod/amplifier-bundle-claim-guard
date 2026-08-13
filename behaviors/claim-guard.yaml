@@ -15,7 +15,7 @@ bundle:
 # implemented separately (next step); this declaration is the wiring it plugs into.
 tools:
   - module: tool-claim-ledger
-    source: ../modules/tool-claim-ledger
+    source: git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=modules/tool-claim-ledger
     config:
       run_dir: .claim-guard        # ledger + artifacts live under <repo>/.claim-guard/<run-id>/
 

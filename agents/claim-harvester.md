@@ -25,7 +25,7 @@ tools:
   - module: tool-bash
     source: git+https://github.com/microsoft/amplifier-module-tool-bash@main
   - module: tool-claim-ledger
-    source: ../modules/tool-claim-ledger
+    source: git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=modules/tool-claim-ledger
 ---
 
 You are the **claim-harvester**. Your single load-bearing question is:
