@@ -7,12 +7,15 @@ bundle:
     onto any bundle to add the implementation-layer claim-verification gate.
 
 # The deterministic trust anchor: the claim ledger, worst-wins aggregation, evidence
-# enforcement, and the gate rule. Implemented as a local module (see modules/tool-claim-ledger).
+# enforcement, and the gate rule. Shipped as the local module modules/tool-claim-ledger.
 # The tool exposes a single `claim_ledger` tool dispatched by `operation` — see
 # docs/tool-claim-ledger-contract.md for the authoritative interface contract.
 #
-# NOTE: `source` is a local path resolved relative to the bundle root. The module is
-# implemented separately (next step); this declaration is the wiring it plugs into.
+# NOTE: `source` is a pinned git URL (repo@main#subdirectory=modules/tool-claim-ledger), NOT a
+# relative path. A relative `../modules/...` resolves against the *declaring file's* directory,
+# which breaks under registry / `amplifier run` composition (it re-bases onto another bundle's
+# cache dir). The pinned git URL resolves identically under direct load, registry composition, and
+# git install. The same URL is used in every agent that declares this tool.
 tools:
   - module: tool-claim-ledger
     source: git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=modules/tool-claim-ledger
