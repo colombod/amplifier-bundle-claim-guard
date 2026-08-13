@@ -1,0 +1,37 @@
+bundle:
+  name: claim-guard-behavior
+  version: 0.1.0
+  description: >
+    The claim-guard capability: the adversarial static-bench agents, the claim-ledger tool
+    (deterministic aggregation + gate), and the thin awareness context. Compose this behavior
+    onto any bundle to add the implementation-layer claim-verification gate.
+
+# The deterministic trust anchor: the claim ledger, worst-wins aggregation, evidence
+# enforcement, and the gate rule. Implemented as a local module (see modules/tool-claim-ledger).
+# The tool exposes a single `claim_ledger` tool dispatched by `operation` — see
+# docs/tool-claim-ledger-contract.md for the authoritative interface contract.
+#
+# NOTE: `source` is a local path resolved relative to the bundle root. The module is
+# implemented separately (next step); this declaration is the wiring it plugs into.
+tools:
+  - module: tool-claim-ledger
+    source: ../modules/tool-claim-ledger
+    config:
+      run_dir: .claim-guard        # ledger + artifacts live under <repo>/.claim-guard/<run-id>/
+
+# The static bench (MVP). Two harvesters + two mandatory-core lenses + two conditional lenses.
+# Phase-2 dynamic agents (probe-designer, pen-tester, regression-graduator) are intentionally
+# NOT included here.
+agents:
+  include:
+    - claim-guard:claim-harvester
+    - claim-guard:purpose-inquisitor
+    - claim-guard:correspondence-auditor
+    - claim-guard:test-correspondence-auditor
+    - claim-guard:chokepoint-mapper
+    - claim-guard:boundary-adversary
+
+# Thin awareness pointer only (~250 tokens). All heavy knowledge lives in agents and skills.
+context:
+  include:
+    - claim-guard:context/claim-guard-awareness.md

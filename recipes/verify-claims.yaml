@@ -1,0 +1,339 @@
+name: "verify-claims"
+description: >
+  Adversarial claim-verification gate (MVP static slice). Harvests the claims a changeset makes
+  (explicit + implicit, cold and UNIONed), fans the static bench out cold and independent to refute
+  each against the shipped source, aggregates verdicts deterministically via the claim_ledger tool,
+  and gates merge on any REFUTED claim or any safety claim with no adverse-state test.
+version: "0.1.0"
+tags: ["claim-guard", "verification", "gate", "adversarial", "review", "staged", "approval-gates"]
+
+# --- TRUST BOUNDARY -----------------------------------------------------------
+# This recipe guarantees ONLY:
+#   (a) a neutral changeset digest (foundation:explorer, judgment-free),
+#   (b) a COLD/INDEPENDENT claim harvest (claim-harvester + purpose-inquisitor), UNIONed via the
+#       ledger — implicit-claim inference can only ADD claims, never remove one (F-1),
+#   (c) Gate A: a human checkpoint on the claim ledger BEFORE any verification spend,
+#   (d) a COLD/INDEPENDENT static-verify fan-out (each lens references only the ledger claims + the
+#       changeset digest, NEVER a sibling lens's output),
+#   (e) a ROSTER MANIFEST (trust artifact),
+#   (f) the DETERMINISTIC aggregation + gate computation (claim_ledger `aggregate`/`gate` ops).
+#
+# It does NOT encode the debate-to-consensus loop or the human-facing synthesis. Those are
+# CONCIERGE-OWNED per skills/claim-guard (the concierge playbook) — mirroring amplifier-bundle-
+# council's split. The recipe is flat and inspectable on purpose; the iterative judgment lives with
+# the concierge + the human.
+#
+# COLD / INDEPENDENT: the recipes engine spawns a fresh sub-session per step, passing only the
+# rendered prompt (no conversation-history inheritance between steps). Independence is STRUCTURAL:
+# each lens is its own step, and no lens prompt interpolates another lens's output. The shared
+# substrate is the ledger (claims in) and the changeset digest — never sibling verdicts.
+#
+# MVP BOUNDARY: this recipe ends at Gate B (proceed to dynamic probing?). Phase 2 (probe-claims.yaml)
+# continues past it. The ledger schema already carries the Phase-2 fields (probe_eligibility,
+# adverse_state_test, DEFERRED) so nothing here needs reshaping to grow the dynamic half.
+# ------------------------------------------------------------------------------
+
+context:
+  run_id: ""                       # ledger run scope; if empty, the ledger tool derives a stable id
+  changeset: ""                    # diff / PR ref / branch range under review
+  commit_messages: ""              # git log text for the changeset
+  design_docs: ""                  # linked design/spec doc paths or inline text (claim sources)
+  council_verdict: ""              # OPTIONAL (F-1): a prior /council verdict to fold in as claims
+  repo_path: "."                   # path to the repo under review
+  gate_policy: "blocking-with-waiver"   # advisory | blocking-with-waiver | blocking
+  max_rounds: 3                    # debate-loop cap (HONORED BY THE CONCIERGE, not this recipe)
+
+stages:
+
+  # === Stage 0: SCOPE — neutral, judgment-free digest ========================
+  - name: "scope"
+    steps:
+      - id: "changeset-digest"
+        agent: "foundation:explorer"
+        prompt: |
+          Produce a NEUTRAL, judgment-free digest of this changeset. You MAP; you do NOT opine —
+          a pre-baked verdict would bias the verification bench.
+
+          Changeset: {{changeset}}
+          Repo: {{repo_path}}
+          Commit messages:
+          {{commit_messages}}
+
+          Report factually:
+          - which files/functions changed, and the shape of each change;
+          - entry points and the load-bearing modules the change touches;
+          - where the linked design/spec docs live: {{design_docs}}
+          - a file index for the changed area.
+          Do NOT judge correctness, risk, or quality. Facts only.
+        output: "changeset_digest"
+
+  # === Stage 1: HARVEST — cold, independent, UNIONed ==========================
+  - name: "harvest"
+    steps:
+      # Cold: references only the changeset + docs, never purpose-inquisitor's output.
+      - id: "harvest-explicit"
+        agent: "claim-guard:claim-harvester"
+        prompt: |
+          Harvest every EXPLICIT, load-bearing claim this changeset makes, and record each to the
+          claim ledger (run_id={{run_id}}) via the claim_ledger tool, operation "add_claim"
+          (inferred=false).
+
+          Changeset digest:
+          {{changeset_digest}}
+          Commit messages:
+          {{commit_messages}}
+          Linked design/spec docs: {{design_docs}}
+          Repo: {{repo_path}}
+
+          Read the actual sources — docstrings/comments FIRST (highest yield), then commits, PR body,
+          then design docs. Type each claim; bias toward `safety` on prevention language. Do NOT
+          invent claims. If you find zero, say so explicitly and note where you looked.
+        output: "explicit_claims"
+
+      # Cold: references only the changeset + issue/why + optional council verdict.
+      - id: "harvest-implicit"
+        agent: "claim-guard:purpose-inquisitor"
+        prompt: |
+          Infer the IMPLICIT claims this changeset makes — what it exists FOR, even when unstated —
+          and record each to the claim ledger (run_id={{run_id}}) via claim_ledger "add_claim"
+          (inferred=true, with a one-line basis).
+
+          Changeset digest:
+          {{changeset_digest}}
+          Commit messages:
+          {{commit_messages}}
+          Linked design/spec docs: {{design_docs}}
+          Prior design-council verdict (fold each addressed FAIL/CONCERN in as a claim, if present):
+          {{council_verdict}}
+          Repo: {{repo_path}}
+
+          For each change ask: what breaks without it? what must stay true while that condition is
+          handled? is that a safety/integrity property? Ground every inferred claim in a specific
+          basis. You may only ADD claims — never contradict or delete an explicit one.
+        output: "implicit_claims"
+
+      # UNION into the ledger and read back the consolidated, typed claim list.
+      - id: "union-ledger"
+        agent: "self"
+        parse_json: true
+        prompt: |
+          The explicit and implicit claims are now both recorded in the ledger for run_id={{run_id}}.
+          Call the claim_ledger tool, operation "list_claims" (run_id={{run_id}}), to read the UNIONed
+          set back. Do NOT re-derive or filter — the union is authoritative; inference only adds.
+
+          Return ONLY the JSON the tool returns (the consolidated claim list with ids, types, sources,
+          and inferred flags).
+        output: "claim_ledger"
+
+  # === GATE A: human reviews the claim ledger BEFORE verification spend =======
+  - name: "gate-a-claim-review"
+    approval:
+      required: true
+      prompt: |
+        CLAIM LEDGER ASSEMBLED (run_id={{run_id}}) — review before spending verification effort.
+
+        Consolidated claims (explicit ∪ implicit):
+        {{claim_ledger}}
+
+        This is the highest-value checkpoint: confirm this is what the change actually promises.
+        - ADD any load-bearing claim the harvesters missed.
+        - REMOVE any hallucinated inferred claim (basis doesn't hold).
+        - RETYPE any misclassified claim (a mistyped `safety` claim silently escapes the strongest
+          gate limb).
+
+        Approve to fan the static bench out over these claims.
+        Deny to stop and edit the ledger, then re-run from the roster stage.
+    steps:
+      - id: "gate-a-noted"
+        agent: "self"
+        prompt: |
+          Record that Gate A was approved for run_id={{run_id}}. No changes to the ledger here —
+          the human has confirmed the claim set. Proceed.
+        output: "gate_a_ack"
+
+  # === Stage 2: ROSTER — resolve which conditional lenses apply ==============
+  - name: "roster"
+    steps:
+      - id: "resolve-roster"
+        agent: "self"
+        parse_json: true
+        prompt: |
+          Resolve the static-bench roster for run_id={{run_id}} against the claim types present.
+
+          MANDATORY CORE (always run on every claim — never drop one):
+            - correspondence-auditor        ("does the code do what the claim says?")
+            - test-correspondence-auditor   ("is there a test that goes RED on violation, adverse state?")
+
+          CONDITIONAL LENSES (default-on when their trigger claim-type is present; if excluded,
+          record the reason — exclusion is an auditable decision, not a silent drop):
+            - chokepoint-mapper  -> include when any claim names a guard/gate/prevention mechanism
+                                    (type safety, or correspondence naming a mechanism)
+            - boundary-adversary -> include when any claim names a cap/limit/threshold/bound/validated
+                                    parameter (type quantitative, or a cap claim)
+
+          Claims:
+          {{claim_ledger}}
+
+          Return ONLY this JSON (booleans as strings "true"/"false"):
+          {
+            "consulted": ["correspondence-auditor", "test-correspondence-auditor", "...included conditionals..."],
+            "include_chokepoint_mapper": "true|false",
+            "chokepoint_mapper_reason": "one-line reason (included or excluded)",
+            "include_boundary_adversary": "true|false",
+            "boundary_adversary_reason": "one-line reason (included or excluded)"
+          }
+        output: "roster"
+
+  # === Stage 3: STATIC-VERIFY FAN-OUT — cold, independent ====================
+  # Each lens reads the ledger claims + the changeset digest ONLY. No lens prompt references another
+  # lens's output. Each records its verdicts back to the ledger via claim_ledger "record_verdict".
+  - name: "static-verify"
+    steps:
+      - id: "verify-correspondence"
+        agent: "claim-guard:correspondence-auditor"
+        prompt: |
+          Refute each claim in the ledger (run_id={{run_id}}) against the shipped source. Read the
+          claims via claim_ledger "list_claims"; for EACH, locate the load-bearing code, try to prove
+          the claim FALSE, and record CONFIRMED|REFUTED|UNTESTABLE via claim_ledger "record_verdict"
+          (lens="correspondence-auditor") with a file:line anchor (required) and, when REFUTED, a
+          concrete counter-case.
+
+          Changeset digest:
+          {{changeset_digest}}
+          Repo: {{repo_path}}
+        output: "r1_correspondence"
+
+      - id: "verify-test-correspondence"
+        agent: "claim-guard:test-correspondence-auditor"
+        prompt: |
+          For each claim in the ledger (run_id={{run_id}}), demand a test that goes RED when the
+          claimed property is VIOLATED, running in the adverse state. Read claims via claim_ledger
+          "list_claims"; record a verdict per claim via claim_ledger "record_verdict"
+          (lens="test-correspondence-auditor"), setting the adverse_state_test field. For safety
+          claims, adverse_state_test.exists=false is the second gate limb. If LSP test-tracing is
+          unavailable, return UNTESTABLE (F-2) — do not guess CONFIRMED.
+
+          Changeset digest:
+          {{changeset_digest}}
+          Repo: {{repo_path}}
+        output: "r1_test_correspondence"
+
+      - id: "verify-chokepoint"
+        condition: "{{roster.include_chokepoint_mapper}} == 'true'"
+        agent: "claim-guard:chokepoint-mapper"
+        prompt: |
+          For each guard/gate/prevention claim in the ledger (run_id={{run_id}}), enumerate EVERY
+          path into the shared chokepoint using LSP incomingCalls/findReferences and mark each
+          guarded/unguarded. Read claims via claim_ledger "list_claims"; record a verdict per
+          applicable claim via claim_ledger "record_verdict" (lens="chokepoint-mapper"). REFUTED if
+          ANY reaching path is unguarded — cite that path's file:line and the driving sequence.
+
+          Changeset digest:
+          {{changeset_digest}}
+          Repo: {{repo_path}}
+        output: "r1_chokepoint"
+
+      - id: "verify-boundary"
+        condition: "{{roster.include_boundary_adversary}} == 'true'"
+        agent: "claim-guard:boundary-adversary"
+        prompt: |
+          For each cap/limit/bound/validated-parameter claim in the ledger (run_id={{run_id}}), find
+          the input value that INVERTS the invariant (negative, zero, None, off-by-one, overflow,
+          unit mismatch). Read claims via claim_ledger "list_claims"; record a verdict per applicable
+          claim via claim_ledger "record_verdict" (lens="boundary-adversary"). REFUTED with the exact
+          inverting value and its blast radius when the bound can be inverted.
+
+          Changeset digest:
+          {{changeset_digest}}
+          Repo: {{repo_path}}
+        output: "r1_boundary"
+
+  # === Stage 3z: ROSTER MANIFEST — trust artifact ============================
+  - name: "roster-manifest"
+    steps:
+      - id: "emit-manifest"
+        agent: "self"
+        prompt: |
+          Emit the ROSTER MANIFEST for run_id={{run_id}} — the human reads this to see exactly who
+          verified what in Round 1.
+
+          Resolved roster: {{roster}}
+          Round-1 lens returns:
+            correspondence-auditor:      {{r1_correspondence}}
+            test-correspondence-auditor: {{r1_test_correspondence}}
+            chokepoint-mapper:           {{r1_chokepoint}}
+            boundary-adversary:          {{r1_boundary}}
+
+          Conditional lenses that did NOT run have an empty return — report them as excluded using
+          the reason from the resolved roster.
+
+          Print:
+            ## Roster Manifest (run_id={{run_id}})
+            Consulted (Round 1): <each lens that ran>
+            Excluded conditional lenses (with reason): <any>
+          If any lens ERRORED or returned no structured verdict, report it LOUDLY here — no synthetic
+          stand-in, no silent drop.
+
+          Then STOP. Do NOT run debate rounds and do NOT synthesize — that is the concierge's job per
+          skills/claim-guard (the concierge playbook).
+        output: "manifest"
+
+  # === Stage 4: AGGREGATE + GATE — deterministic (the tool decides) ==========
+  - name: "aggregate-and-gate"
+    steps:
+      - id: "compute-gate"
+        agent: "self"
+        prompt: |
+          Compute the claim-verification matrix and the gate verdict DETERMINISTICALLY. Call the
+          claim_ledger tool, operation "gate" (run_id={{run_id}}, gate_policy={{gate_policy}}). Do NOT
+          re-derive, re-weigh, or soften the result in prose — the tool computes worst-wins
+          aggregation and the BLOCK/PASS/INDETERMINATE verdict; you only render what it returns.
+
+          Then call claim_ledger "render_matrix" (run_id={{run_id}}, format="markdown") and print the
+          matrix and the coverage line (claims harvested / verified / probed / deferred / waived)
+          verbatim.
+
+          Reminder of the gate rule the tool enforces (BLOCK if any):
+            1. any claim aggregates to REFUTED;
+            2. any safety claim with no adverse-state test that fails on violation;
+            3. any UNTESTABLE claim with no recorded human waiver;
+            4. any lens errored / no structured verdict -> INDETERMINATE (never PASS);
+            5. zero claims harvested -> INDETERMINATE (never PASS).
+        output: "gate_result"
+
+  # === GATE B: proceed to dynamic probing? (MVP terminates here) =============
+  - name: "gate-b-dynamic-probing"
+    approval:
+      required: true
+      prompt: |
+        STATIC VERIFICATION COMPLETE (run_id={{run_id}}).
+
+        Matrix + gate verdict:
+        {{gate_result}}
+
+        This is the MVP boundary. The static claim-verification matrix above is complete and
+        independently useful — denying here is the EXPECTED terminal state, not a failure.
+
+        Approve ONLY if the Phase-2 dynamic-probing recipe (probe-claims.yaml) is available and you
+        want to stand up adverse states in a Digital Twin and pen-test the eligible/UNTESTABLE claims.
+        Deny to stop with the static matrix as the deliverable.
+    steps:
+      - id: "gate-b-noted"
+        agent: "self"
+        prompt: |
+          Record the Gate B decision for run_id={{run_id}}. In the MVP, dynamic probing is not yet
+          implemented; if approved, note that probe-claims.yaml (Phase 2) is the continuation and
+          consumes this run's ledger. Summarize the final static gate verdict for the human.
+        output: "final_summary"
+
+# Outputs:
+#   changeset_digest  — neutral map of the change
+#   claim_ledger      — the UNIONed, typed claim set (explicit ∪ implicit)
+#   roster            — resolved bench + conditional-lens inclusion reasons
+#   manifest          — roster manifest (who verified what)
+#   gate_result       — the claim-verification matrix + deterministic gate verdict
+#   final_summary     — the terminal static verdict for the human
+#
+# The debate-to-consensus loop and the attributed, dissent-preserving synthesis are CONCIERGE-OWNED
+# (skills/claim-guard). Run this recipe for the guaranteed cold fan-out + deterministic gate; invoke
+# /claim-guard for the full council-shaped orchestration on top.
