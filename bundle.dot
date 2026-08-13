@@ -8,7 +8,7 @@ digraph claim_guard {
     nodesep=0.6
     ranksep=0.7
     bgcolor="white"
-    source_hash="70de1d39046074f7a01a2a8ddaf3aafaf55da0afdb57b41a8e46b4901963460b"
+    source_hash="0b29d288aca63537bf51101a67c644c3d4ea7bad8c50261d1d878be4f33cd397"
 
     node [fontname="Helvetica", fontsize=11, style="filled,rounded"]
     edge [fontname="Helvetica", fontsize=9]
@@ -21,7 +21,17 @@ digraph claim_guard {
         fillcolor="#f9f9f9"
         color="#999999"
 
-        beh_claim_guard_behavior [label="claim-guard-behavior\n1 tools · 1 ctx\n~2377 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
+        beh_claim_guard_probing [label="claim-guard-probing\n1 tools\n~1511 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
+        beh_claim_guard_behavior [label="claim-guard-behavior\n1 tools · 1 ctx\n~2467 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
+    }
+
+    subgraph cluster_standalones {
+        label="Standalone Bundles"
+        style="filled"
+        fillcolor="#f9f9f9"
+        color="#999999"
+
+        sta_claim_guard_with_probing [label="claim-guard-with-probing", shape=box, fillcolor="#80cbc4", style="filled,rounded"]
     }
 
     subgraph cluster_agents {
@@ -34,7 +44,10 @@ digraph claim_guard {
         agt_chokepoint_mapper [label="chokepoint-mapper\n~289 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
         agt_claim_harvester [label="claim-harvester\n~267 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
         agt_correspondence_auditor [label="correspondence-auditor\n~272 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
+        agt_pen_tester [label="pen-tester\n~362 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
+        agt_probe_designer [label="probe-designer\n~380 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
         agt_purpose_inquisitor [label="purpose-inquisitor\n~279 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
+        agt_regression_graduator [label="regression-graduator\n~327 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
         agt_test_correspondence_auditor [label="test-correspondence-auditor\n~289 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
     }
 
@@ -87,6 +100,10 @@ digraph claim_guard {
     root_claim_guard -> ext_githttps___github_com_microsoft_amplifier_bundle_recipes_main [style=dashed]
     root_claim_guard -> ext_githttps___github_com_microsoft_amplifier_bundle_lsp_main [style=dashed]
     root_claim_guard -> beh_claim_guard_behavior [label="composes"]
+    beh_claim_guard_probing -> agt_probe_designer [label="owns"]
+    beh_claim_guard_probing -> agt_pen_tester [label="owns"]
+    beh_claim_guard_probing -> agt_regression_graduator [label="owns"]
+    beh_claim_guard_probing -> mod_tool_claim_ledger [label="uses", penwidth=0.8]
     beh_claim_guard_behavior -> agt_claim_harvester [label="owns"]
     beh_claim_guard_behavior -> agt_purpose_inquisitor [label="owns"]
     beh_claim_guard_behavior -> agt_correspondence_auditor [label="owns"]
@@ -96,4 +113,5 @@ digraph claim_guard {
     beh_claim_guard_behavior -> mod_tool_claim_ledger [label="uses", penwidth=0.8]
     beh_claim_guard_behavior -> ctx_claim_guard_awareness_md [style=dotted, color=purple]
     root_claim_guard -> ctx_claim_guard_awareness_md [style=dotted, color=purple]
+    sta_claim_guard_with_probing -> root_claim_guard [label="extends", style=dashed]
 }

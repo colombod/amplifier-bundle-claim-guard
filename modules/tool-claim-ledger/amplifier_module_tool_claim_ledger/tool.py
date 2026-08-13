@@ -33,12 +33,17 @@ class ClaimLedgerTool:
         return (
             "Deterministic claim ledger for the adversarial claim-verification gate. "
             "Dispatched by `operation`: add_claim, list_claims, record_verdict, "
-            "record_debate, waive, aggregate, gate, render_matrix. Persists to "
+            "record_debate, waive, record_probe, defer_claim, graduate_test, "
+            "aggregate, gate, render_matrix. Persists to "
             "<repo>/<run_dir>/<run_id>/ledger.json -- the only write capability in the "
             "gate session. Computes worst-wins aggregation and the gate verdict as pure, "
             "deterministic functions -- never via LLM judgment -- and structurally "
             "enforces file:line evidence anchors and an evidence ratchet so a REFUTED "
-            "verdict cannot be talked away without new evidence."
+            "verdict cannot be talked away without new evidence. Phase-2 probing "
+            "coverage (record_probe/defer_claim/graduate_test) is honest: only "
+            "graduate_test (full criteria met) or record_verdict's adverse_state_test "
+            "clear gate limb 2 for a safety claim -- a SURVIVED-but-ungraduated probe "
+            "or a deferred claim still blocks."
         )
 
     @property
@@ -130,7 +135,27 @@ class ClaimLedgerTool:
                     "description": "record_debate: which lenses' findings were relayed.",
                 },
                 "by": {"type": "string", "description": "waive: who is waiving."},
-                "reason": {"type": "string", "description": "waive: why."},
+                "reason": {
+                    "type": "string",
+                    "description": "waive: why. defer_claim: why the probe was deferred.",
+                },
+                "probe": {
+                    "type": "object",
+                    "description": (
+                        "record_probe: { designed_by, adverse_state, outcome: "
+                        "FALSIFIED|SURVIVED|UNBUILDABLE, evidence?, artifacts_path? }. "
+                        "Never itself sets adverse_state_test."
+                    ),
+                },
+                "standing_test": {
+                    "type": "object",
+                    "description": (
+                        "graduate_test: { path, asserts_property, red_before, "
+                        "green_after, deterministic_runs }. Rejected unless all of "
+                        "asserts_property/red_before/green_after are true and "
+                        "deterministic_runs >= 3."
+                    ),
+                },
                 "gate_policy": {
                     "type": "string",
                     "enum": ["advisory", "blocking-with-waiver", "blocking"],

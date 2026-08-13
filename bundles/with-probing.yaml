@@ -1,0 +1,27 @@
+bundle:
+  name: claim-guard-with-probing
+  version: 0.1.0
+  description: >
+    Standalone Phase-2 variant of claim-guard: the full static gate PLUS the dynamic behavioural
+    penetration-testing bench (probe-designer, pen-tester, regression-graduator) and the execution
+    primitives they drive — Digital Twin Universe (isolated adverse-state construction),
+    parallax-discovery (execution-based falsification), and amplifier-tester (DTU setup). Use this
+    bundle when you want to run probe-claims.yaml after verify-claims; the plain `claim-guard` bundle
+    stays static-only so a static run never pays the DTU dependency surface.
+
+includes:
+  # Everything the static root composes (kept in sync with bundle.md) --------------------------------
+  - bundle: git+https://github.com/microsoft/amplifier-foundation@main
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-modes@main
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-recipes@main
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-lsp@main
+  - bundle: claim-guard:behaviors/claim-guard            # the static bench + claim_ledger + awareness
+
+  # The Phase-2 dynamic bench (the 3 probing agents + claim_ledger) ----------------------------------
+  - bundle: claim-guard:behaviors/claim-guard-probing
+
+  # The execution primitives the dynamic bench REUSES (don't rebuild) -- composed HERE, not in the
+  # thin behavior, so they stay off the static bundle. probe-designer/pen-tester delegate to these:
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-digital-twin-universe@main   # dtu-profile-builder + DTU skill/CLI (isolated adverse-state construction)
+  - bundle: git+https://github.com/bkrabach/amplifier-bundle-parallax-discovery@main       # antagonist + parallax-methodology (execution-based falsification)
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-amplifier-tester@main        # setup-digital-twin + validator (DTU setup helpers)

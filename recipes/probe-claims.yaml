@@ -1,0 +1,202 @@
+name: "probe-claims"
+description: >
+  Phase-2 dynamic behavioural penetration testing (Stages 5-8). Consumes the ledger produced by
+  verify-claims (by run_id/ledger_path, NOT by coupling): selects probe-eligible survivors and
+  UNTESTABLE claims, designs a falsification experiment per claim, stands the adverse state up in an
+  isolated Digital Twin and attacks it, graduates surviving probes into candidate standing tests, and
+  recomputes the deterministic gate + matrix. New defects and candidate tests are emitted as artifacts;
+  the gate-moving signal reaches the ledger via record_verdict (+ adverse_state_test).
+version: "0.1.0"
+tags: ["claim-guard", "probe", "dynamic", "pen-test", "dtu", "phase-2", "staged", "approval-gates"]
+
+# --- TRUST BOUNDARY -----------------------------------------------------------
+# This recipe guarantees ONLY:
+#   (a) it CONSUMES an existing ledger by run_id -- it never re-harvests, never re-verifies, never
+#       reshapes the static verdicts. The ledger is the seam; probing composes onto ANY completed
+#       static run (verify-claims) without touching that recipe.
+#   (b) a COLD/INDEPENDENT probe-design fan-out over probe-eligible + UNTESTABLE claims (each design
+#       step references only the claim + its static counter-cases from the ledger, never a sibling).
+#   (c) a DTU-bounded, probe_budget-capped pen-test pass that observes for the SPECIFIC violation
+#       (corruption/loss/inversion/staleness), never liveness, and records empirical verdicts.
+#   (d) a graduation pass that only promotes a probe to a standing test on red-before/green-after +
+#       deterministic-3x + property-not-values -- otherwise a one-shot finding.
+#   (e) the DETERMINISTIC final aggregation + gate + matrix (claim_ledger gate/render_matrix).
+#
+# It does NOT encode the debate-to-consensus loop or the human-facing synthesis -- those remain
+# CONCIERGE-OWNED per skills/claim-guard, exactly as in verify-claims. The recipe is flat.
+#
+# COLD / INDEPENDENT: the recipes engine spawns a fresh sub-session per step; no probe-design or
+# pen-test prompt interpolates a sibling agent's output. Shared substrate is the ledger + the probe
+# specs on disk, never sibling verdicts.
+#
+# LEDGER CONSUMPTION (how Phase-2 reads/writes the MVP ledger -- no reshaping):
+#   READ : claim_ledger "list_claims" -> select probe_eligibility=="eligible" OR aggregate=="UNTESTABLE".
+#          (probe_eligibility is auto-set to "eligible" for safety/quantitative/temporal/concurrency
+#          at add_claim time; correspondence/coverage are "not_eligible" and static-sufficient.)
+#   WRITE: claim_ledger "record_verdict" (lens pen-tester / regression-graduator) -- an empirical
+#          REFUTED (new defect) moves the gate via worst-wins; setting adverse_state_test.exists=true
+#          is what CLEARS the safety limb (limb 2) for a survived+tested claim. An eligible claim left
+#          unprobed keeps adverse_state_test.exists=false and still trips the gate -- deferred != passed.
+#   ARTIFACTS (on disk, scoped -- pen-tester/regression-graduator never touch the source tree):
+#          .claim-guard/<run_id>/probes/         probe specs + executable probes + captured output
+#          .claim-guard/<run_id>/new-defects/    repros for empirically-falsified claims
+#          .claim-guard/<run_id>/proposed-tests/ graduated candidate standing tests (human commits them)
+#
+# UNDERSPECIFIED (flagged to the human): the MVP ledger module exposes NO operation to set the `probe`
+# or `standing_test` fields, or to transition probe_eligibility to "deferred". So the matrix coverage
+# counters `probed` and `deferred` (compute_coverage keys off those fields) will read 0 even after a
+# real probe pass. The load-bearing gate signal (adverse_state_test via record_verdict) IS wired and
+# correct; only the coverage bookkeeping is blind. Recommend a follow-up ledger op
+# (record_probe / defer_claim / graduate_test) -- NOT added here, to avoid reshaping the shipped module.
+# ------------------------------------------------------------------------------
+
+context:
+  run_id: ""                       # REQUIRED: the ledger run produced by verify-claims (the seam)
+  ledger_path: ""                  # optional: informational; the tool resolves the run by run_id + run_dir
+  repo_path: "."                   # the worktree under review (read-only for the gate)
+  gate_policy: "blocking-with-waiver"   # advisory | blocking-with-waiver | blocking
+  probe_budget: 3                  # max probes actually RUN this changeset (DTU spend cap)
+  max_rounds: 3                    # debate-loop cap (HONORED BY THE CONCIERGE, not this recipe)
+
+stages:
+
+  # === Stage 5: PROBE DESIGN -- cold fan-out over eligible + UNTESTABLE claims ===
+  - name: "probe-design"
+    steps:
+      - id: "select-and-design"
+        agent: "claim-guard:probe-designer"
+        prompt: |
+          Consume the existing ledger for run_id={{run_id}} (do NOT re-harvest or re-verify). Call
+          claim_ledger "list_claims" (run_id={{run_id}}) and select the claims that NEED a behavioural
+          probe:
+            - probe_eligibility == "eligible"  (safety | quantitative | temporal | concurrency), OR
+            - aggregate == "UNTESTABLE"        (the static bench could not settle it).
+          Skip correspondence/coverage claims -- static reading is sufficient for those.
+
+          For EACH selected claim, design a falsification experiment and write its spec to
+          .claim-guard/{{run_id}}/probes/<claim_id>.probe.md with: forbidden violation
+          (corruption|loss|inversion|staleness), adverse_state (catalog category + concrete setup),
+          exercise, the RED-on-violation assertion (never liveness), three_phase yes/no (yes required
+          for temporal), falsifiable yes/no, and pre_change_ref for the red-before baseline. Load the
+          adverse-state-catalog + probe-patterns skills. Do NOT run anything. If a claim is not
+          falsifiable, say so -- that is a finding, not a probe.
+
+          Repo under review: {{repo_path}}
+        output: "probe_specs"
+
+  # === GATE B' : proceed to DTU pen-testing? (spend gate before DTU) ============
+  - name: "gate-probe-spend"
+    approval:
+      required: true
+      prompt: |
+        PROBE SPECS DESIGNED (run_id={{run_id}}).
+
+        {{probe_specs}}
+
+        Dynamic probing spins Digital Twins and is the expensive half. probe_budget={{probe_budget}}
+        caps how many probes actually RUN; eligible claims beyond the budget are left unprobed and,
+        if safety, still trip the gate (deferred != passed).
+
+        Approve to stand the adverse states up in a DTU and attack them.
+        Deny to stop with the static matrix + the designed specs as the deliverable.
+    steps:
+      - id: "gate-probe-spend-noted"
+        agent: "self"
+        prompt: |
+          Record that the DTU pen-test spend gate was approved for run_id={{run_id}}. Proceed to the
+          budget-capped pen-test pass.
+        output: "gate_probe_ack"
+
+  # === Stage 6: PEN-TEST -- stand up adverse state in a DTU, attack, capture =====
+  - name: "pen-test"
+    steps:
+      - id: "run-probes"
+        agent: "claim-guard:pen-tester"
+        prompt: |
+          Consume run_id={{run_id}}. Read the probe specs under .claim-guard/{{run_id}}/probes/ and,
+          up to probe_budget={{probe_budget}} probes, stand each adverse state up in an ISOLATED
+          Digital Twin and try to make the forbidden violation actually happen. Load the
+          digital-twin-universe skill; delegate DTU profile construction to
+          digital-twin-universe:dtu-profile-builder (or amplifier-tester:setup-digital-twin) and the
+          run-and-capture core to parallax-discovery:antagonist (load parallax-methodology). Observe
+          for the SPECIFIC violation (corruption/loss/inversion/staleness) -- NEVER liveness. Temporal
+          probes are three-phase (observe -> repair out-of-band -> observe again, same process).
+
+          Record each outcome via claim_ledger "record_verdict" (lens="pen-tester"):
+            - violation occurred -> verdict "REFUTED" + evidence anchor into
+              .claim-guard/{{run_id}}/new-defects/<claim_id>.md + counter_case (the repro + observed
+              violation). A NEW defect.
+            - survived AND the probe goes red-on-violation -> verdict "CONFIRMED" + set
+              adverse_state_test {exists:true, test_ref, reason} (this clears the safety limb).
+            - can't be built / not falsifiable -> verdict "UNTESTABLE" + reason; leave
+              adverse_state_test.exists=false.
+          Any claim you do NOT get to within budget stays unprobed (adverse_state_test.exists=false);
+          report it by id -- deferred != passed. A DTU that won't spin or a probe that errors is a
+          FAIL-LOUD event, never a silent pass. Write probe scripts + captured output under
+          .claim-guard/{{run_id}}/probes/ and repros under .claim-guard/{{run_id}}/new-defects/.
+
+          Repo under review (read-only; never edit it): {{repo_path}}
+        output: "pen_results"
+
+  # === Stage 7: GRADUATE -- only durable probes become standing tests ============
+  - name: "graduate"
+    steps:
+      - id: "graduate-survivors"
+        agent: "claim-guard:regression-graduator"
+        prompt: |
+          Consume run_id={{run_id}}. For each probe under .claim-guard/{{run_id}}/probes/ that produced
+          a red-on-violation assertion (pen-tester survived-with-test), decide GRADUATE vs REJECT
+          against ALL THREE criteria: (1) red-before/green-after both captured (use the spec's
+          pre_change_ref), (2) deterministic 3x consecutively in the DTU, (3) asserts the PROPERTY the
+          claim forbids -- not the repro's incidental fixture values.
+
+          GRADUATE -> write the committable test to .claim-guard/{{run_id}}/proposed-tests/<claim_id>_test.*
+          and confirm the durable adverse-state test on the ledger via claim_ledger "record_verdict"
+          (lens="regression-graduator", verdict "CONFIRMED", adverse_state_test.exists=true, test_ref =
+          the proposed-test path).
+          REJECT -> write .claim-guard/{{run_id}}/proposed-tests/<claim_id>.rejected.md naming the failed
+          criterion; do NOT set adverse_state_test.exists=true. A safety claim with only a rejected probe
+          still trips the gate -- correctly. If the pen-tester had set exists=true for a probe you now
+          reject, flag it LOUDLY so the concierge reconciles: a rejected probe must not leave a safety
+          claim looking delivered.
+
+          Pen-test results: {{pen_results}}
+          Repo under review (read-only): {{repo_path}}
+        output: "graduation_results"
+
+  # === Stage 8: AGGREGATE + GATE -- deterministic (the tool decides) =============
+  - name: "aggregate-and-gate-final"
+    steps:
+      - id: "compute-final-gate"
+        agent: "self"
+        prompt: |
+          Recompute the FINAL claim-verification matrix and gate verdict DETERMINISTICALLY for
+          run_id={{run_id}}. Call claim_ledger "gate" (run_id={{run_id}}, gate_policy={{gate_policy}}),
+          then claim_ledger "render_matrix" (run_id={{run_id}}, format="markdown"). Print both verbatim.
+          Do NOT re-weigh or soften -- the tool computes worst-wins + the gate rule; you only render.
+
+          What changed vs the static matrix, and why it is meaningful:
+            - empirical REFUTEDs from the pen-tester are NEW defects that now BLOCK (limb 1);
+            - safety claims whose probe survived AND graduated now have adverse_state_test.exists=true,
+              CLEARING the safety limb (limb 2) -- these are now *delivered* claims, not merely asserted;
+            - eligible safety claims left unprobed / with a rejected probe still trip limb 2 (deferred
+              != passed).
+
+          Then list, for the human:
+            - NEW DEFECTS: .claim-guard/{{run_id}}/new-defects/  (with the falsified claim ids)
+            - CANDIDATE STANDING TESTS to commit: .claim-guard/{{run_id}}/proposed-tests/ (graduated only)
+            - DEFERRED / REJECTED: claim ids still lacking a durable adverse-state test.
+          NOTE the coverage counters `probed`/`deferred` may read 0 (the MVP ledger has no op to set the
+          probe/deferred bookkeeping fields); the authoritative gate signal is the verdicts +
+          adverse_state_test, which ARE recorded. Surface the artifact paths regardless.
+        output: "final_gate_result"
+
+# Outputs:
+#   probe_specs        -- designed falsification experiments (also on disk under probes/)
+#   pen_results        -- empirical verdicts + new defects (recorded to the ledger; artifacts on disk)
+#   graduation_results -- graduate/reject decisions (candidate tests under proposed-tests/)
+#   final_gate_result  -- the recomputed deterministic matrix + gate verdict + artifact index
+#
+# The debate-to-consensus loop and the attributed, dissent-preserving synthesis remain CONCIERGE-OWNED
+# (skills/claim-guard). Run this recipe for the guaranteed cold probe fan-out + DTU pen-test +
+# deterministic re-gate; invoke /claim-guard for the full council-shaped orchestration on top.

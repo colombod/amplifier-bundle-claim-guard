@@ -45,10 +45,10 @@ The tool mounts via the standard module `mount()` contract (must call
     "reason": "why it does/does not count as an adverse-state test that fails on violation"
   },
 
-  // ---- Phase-2 fields: present in the schema now, filled later; MVP leaves as defaults ----
-  "probe_eligibility": "not_eligible|eligible|deferred",     // MVP: derived from type (see below)
-  "probe": null,                                             // Phase-2 probe spec + run evidence
-  "standing_test": null,                                     // Phase-2 graduated regression test ref
+  // ---- Phase-2 fields: schema present from MVP; ops below now fill them ----
+  "probe_eligibility": "not_eligible|eligible|deferred",     // derived from type at add_claim; deferred set by defer_claim
+  "probe": null,                                             // set by record_probe: { designed_by, adverse_state, outcome, evidence, artifacts_path, recorded_at } | null
+  "standing_test": null,                                     // set by graduate_test: { path, asserts_property, red_before, green_after, deterministic_runs, recorded_at } | null
 
   "waiver": null                                             // { "by": "...", "reason": "...", "at": "ISO8601" } | null
 }
@@ -120,6 +120,43 @@ Record a named human waiver on a claim. Only meaningful under `blocking-with-wai
 
 - **in:** `{ run_id, claim_id, by, reason }`
 - **out:** `{ ok, claim_id, waiver }`
+
+### `record_probe`  *(Phase-2)*
+Attach a probe result to a claim. Writes `claim.probe` **only** — never touches
+`verdicts`/`aggregate` (a probe's `FALSIFIED` outcome still requires a separate
+`record_verdict` call to actually refute the claim) and never touches
+`adverse_state_test`, even on `outcome: SURVIVED`. A survived-but-ungraduated probe
+does not clear gate limb 2 — only `graduate_test` can do that.
+
+- **in:** `{ run_id, claim_id, probe: { designed_by, adverse_state, outcome, evidence?, artifacts_path? } }`
+  — `outcome` ∈ `FALSIFIED|SURVIVED|UNBUILDABLE`
+- **out:** `{ ok, claim_id, run_id, probe }` or `invalid_probe_outcome` /
+  `invalid_input` / `run_not_found` / `claim_not_found`
+
+### `defer_claim`  *(Phase-2)*
+Mark a probe-eligible claim as `deferred` (probe not run this pass, e.g. budget/DTU
+unavailable). Sets `probe_eligibility: "deferred"` — coverage's `deferred` counter and
+`render_matrix` read this directly. **Never** sets `adverse_state_test`: a deferred
+safety claim still trips gate limb 2 (deferred ≠ passed). Rejected for a claim whose
+`probe_eligibility` is `not_eligible`.
+
+- **in:** `{ run_id, claim_id, reason }`
+- **out:** `{ ok, claim_id, run_id, probe_eligibility: "deferred" }` or `not_probe_eligible` /
+  `invalid_input` / `run_not_found` / `claim_not_found`
+
+### `graduate_test`  *(Phase-2)*
+Record that a surviving probe became a standing regression test. **Structurally
+rejects (writes nothing)** unless *all* of `asserts_property`, `red_before`,
+`green_after` are truthy and `deterministic_runs >= 3`. On success, sets
+`claim.standing_test` **and** `claim.adverse_state_test.exists = true` — this is the
+only Phase-2 path (besides `record_verdict`'s own `adverse_state_test` update) that
+clears gate limb 2 for a claim.
+
+- **in:** `{ run_id, claim_id, standing_test: { path, asserts_property, red_before, green_after, deterministic_runs } }`
+- **out (success):** `{ ok, claim_id, run_id, standing_test, adverse_state_test }`
+- **out (rejected):** `{ ok: false, error: "graduation_criteria_unmet", message: "...missing: <criteria>" }`
+  — nothing written; `claim.standing_test` stays `null` and `adverse_state_test` is
+  unchanged.
 
 ### `aggregate`
 Recompute (idempotently) every claim's `aggregate` from its verdicts, worst-wins. Returns the matrix
@@ -260,16 +297,26 @@ Write these before any agent is wired to the tool:
 
 ---
 
-## Phase-2 readiness (do not build, do not foreclose)
+## Phase-2 readiness: ledger ops implemented, dynamic probing not yet wired
 
-The schema already carries `probe_eligibility`, `probe`, `standing_test`, and the `deferred` state.
-Phase 2 (`probe-claims.yaml` + `probe-designer`/`pen-tester`/`regression-graduator`) will:
-- add `design_probe`, `record_probe_run`, and `graduate_test` operations;
-- set `probe_eligibility: deferred` when an eligible claim is not probed (budget/DTU), which the
-  matrix shows as **DEFERRED** — and a deferred **safety** claim still trips gate limb 2
-  (deferred ≠ passed);
-- fill `adverse_state_test` from a graduated probe (red-before/green-after, 3× deterministic,
-  property-level assertion) — the only way a safety claim clears limb 2 by test rather than by
-  waiver.
+The ledger-level Phase-2 slice is **implemented**: `record_probe`, `defer_claim`, and
+`graduate_test` (above) fill `probe`, `probe_eligibility: deferred`, and `standing_test` /
+`adverse_state_test` honestly, and `compute_coverage`'s `probed`/`deferred` counters (read by
+both `gate` and `render_matrix`) reflect real data written by these ops rather than always
+reading zero.
 
-No field added in Phase 2 reshapes an MVP field; the MVP ledger is forward-compatible by construction.
+**What this closes:** before these ops existed, nothing ever wrote `probe`, `standing_test`, or
+`probe_eligibility: deferred` — so `coverage.probed`/`coverage.deferred` always read `0` even
+once probing existed conceptually. The matrix and gate coverage line are now honest.
+
+**What is still NOT built** (the dynamic half — recipe/agent wiring, not the ledger):
+- `probe-claims.yaml` recipe and the `probe-designer`/`pen-tester`/`regression-graduator` agents
+  that actually *design and run* probes against an isolated adverse-state environment (DTU) and
+  call these ops with real results.
+- Any DTU integration. `record_probe`/`graduate_test` are pure ledger writes; they trust whatever
+  `probe`/`standing_test` payload the caller provides. Verifying that a payload reflects a real
+  DTU run (not a fabricated one) is the calling agent's responsibility, not the ledger's — the
+  same trust boundary `record_verdict`'s evidence-anchor enforcement establishes for lens verdicts.
+
+No field or op added in this slice reshapes an MVP field or op; the ledger remains
+forward-compatible by construction.

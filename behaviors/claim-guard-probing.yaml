@@ -1,0 +1,31 @@
+bundle:
+  name: claim-guard-probing
+  version: 0.1.0
+  description: >
+    The Phase-2 dynamic capability: the three behavioural-penetration-testing agents (probe-designer,
+    pen-tester, regression-graduator) plus the claim-ledger tool they record empirical verdicts to.
+    Compose this behavior ONTO the static claim-guard bundle (see bundles/with-probing.yaml) to add
+    Digital-Twin adverse-state probing on top of the static gate. Kept OFF the MVP bundle.md so a
+    static-only run never pays the DTU dependency surface.
+
+# Same deterministic trust anchor the static bench uses. The dynamic agents record their empirical
+# verdicts (and set adverse_state_test) through this tool -- the seam that moves the gate. Pinned git
+# URL (NOT a relative path): a relative source re-bases onto the declaring file's dir and breaks under
+# registry / `amplifier run` composition. Same URL every agent uses.
+tools:
+  - module: tool-claim-ledger
+    source: git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=modules/tool-claim-ledger
+    config:
+      run_dir: .claim-guard        # ledger + probe/new-defect/proposed-test artifacts under <repo>/.claim-guard/<run-id>/
+
+# The Phase-2 dynamic bench. The DTU / parallax-discovery / amplifier-tester bundles these agents
+# DELEGATE to are composed by the standalone (bundles/with-probing.yaml), not here -- keeping this
+# behavior a thin, portable partial with no heavy root includes.
+agents:
+  include:
+    - claim-guard:probe-designer
+    - claim-guard:pen-tester
+    - claim-guard:regression-graduator
+
+# No context.include here: the awareness pointer ships with the static behavior; the Phase-2
+# disciplines (probe-patterns, adverse-state-catalog) are on-demand skills, not always-on context.
