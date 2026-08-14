@@ -62,10 +62,26 @@ on host:
 Both paths agree (essentially disjoint id sets), which is itself the empirical proof that the
 temperature pin changed nothing — root cause #3 above. See `EVALUATION.md` §9.4 for the full write-up.
 
-**Path forward (a design decision — tracked as `claim_gate-ryw`).** None of the options is free; this
-needs a deliberate call, not a quiet default:
-- **stricter prompt canonical form** — push the agents harder toward a single surface form
-  (fixed templates / a controlled predicate vocabulary). Cheapest; may still not converge paraphrase.
+**Path (a) ATTEMPTED — stricter canonical form (mechanism×property grid + rigid template), and it did
+NOT converge (measured `@2a97cb7`).** The prompt prong was tightened hard: a required mechanism×property
+grid (one claim per occupied cell), a rigid `<symbol> <verb> <object>` template over a closed predicate
+vocabulary with deterministic per-property typing, and a second-pass canonicalizer. Unit-proven (147
+module tests incl. +29 template↔normalizer R-6 tests). A fresh N=5 in-twin re-measure on the same fixed
+changeset scored **Jaccard@claim_id 0.0 / id-stability 0.0** (counts 34–88) — no improvement over the
+0.0075/0.0395 baseline; it slightly regressed. **Root cause, now understood:** the template *is* being
+followed (phrasing is canonical), but the variance simply **moved from phrasing to claim SELECTION** —
+which symbols get harvested, at what granularity, and (since `type` is in the id hash) what property/type
+a shared symbol is assigned. Canonicalizing *how* a claim is worded does nothing while *which* claims get
+selected still varies run-to-run. The change is kept (deterministic typing + canonical phrasing + the
+hardened R-6 guard are correct and are prerequisites for any selection fix), but on its own it does not
+move the metric.
+
+**Path forward (a design decision — tracked as `claim_gate-wd7` (path a, done/measured) → `claim_gate-0ut`
+(path c)).** None of the options is free; this needs a deliberate call, not a quiet default:
+- **deterministic claim SELECTION (the newly-identified lever)** — the real remaining variance. Force a
+  mechanical enumeration (one claim per changed public symbol × property axis) with type pinned from the
+  mechanism, rather than free model choice of which symbols/granularity/type to harvest.
+- **stricter prompt canonical form (phrasing)** — DONE (`@2a97cb7`); necessary but not sufficient.
 - **controlled semantic-collapse in `normalize_text`** — a *tightly scoped, closed-list* synonym /
   stem step. **Risky:** this is exactly the R-1 false-merge hazard the code prong was deliberately
   built to avoid; any such step must be gated behind an expanded minimal-pairs tripwire.
