@@ -182,18 +182,81 @@ server.** It demonstrably surfaced the real B-1 violation and its red-before/gre
 **full-fidelity confirmation against a real degraded Neo4j would require a host with nested
 Docker/Incus.** Do not overclaim this as a live-Neo4j probe.
 
-#### 8.2.3 Residuals (what a fuller Phase-2 acceptance still needs)
+#### 8.2.3 Residuals after the first run (two of three now closed in §8.3)
 
-The loop is genuinely exercised end-to-end, but three things remain for a complete Phase-2 acceptance:
+The §8.2 run left three residuals; **the graduation capstone and multi-claim fan-out are now done**
+(§8.3), leaving only the live-fidelity residual:
 
-- **Full-fidelity live probes** — the same loop against a real degraded Neo4j in a nested
-  Docker/Incus twin (needs a container-capable host).
-- **More than one claim** — a multi-claim, budget-capped fan-out (this run probed a single claim).
-- **Graduation of a SURVIVING probe** — this claim was FALSIFIED, so `regression-graduator`'s
-  promote-survivor-into-standing-test path is correctly **not** exercised here; it still needs a run
-  where a probe *survives* to demonstrate graduation.
+- ~~**More than one claim**~~ — **DONE** (§8.3): `coverage.probed = 3` in ledger `t0run1`.
+- ~~**Graduation of a SURVIVING probe**~~ — **DONE** (§8.3): `graduate_test` ACCEPTED on `clm_c39773b8`.
+- **Full-fidelity live probes** — **still open** (infra-gated): the same loop against a real degraded
+  Neo4j in a nested Docker/Incus twin (needs a container-capable host).
 
-See `KNOWN_ISSUES.md` (KI-2) for the tracked-residual summary.
+### 8.3 Graduation capstone + multi-claim (residuals closed)
+
+A second run in the same twin (`claim-guard-dtu @9ed4d1b`, active bundle `claim-guard-with-probing`,
+still no nested containers → same design-sanctioned lighter path, in-process faithful models via
+`uv run --with pydantic`) closed two of the three §8.2.3 residuals. **Both Phase-2 outcome branches
+are now demonstrated end-to-end:** the §8.2 run showed **FALSIFIED → REFUTED** (new-defect finding);
+this run shows **SURVIVED → graduated into a standing test** (the "properly delivered claim").
+
+#### 8.3.1 The graduation capstone — `graduate_test` ACCEPTED
+
+- **Survivor claim.** `clm_c39773b8` — *"`reclaim_blobs` deletes at most `max_delete` blob files in
+  apply mode"*, **type `quantitative`** — grounded on the real **B-3** source asymmetry: adverse
+  `admin.py:653` `max_delete: int | None = None` (no validator) vs fixed `admin.py:678`
+  `max_delete: int | None = Field(default=None, ge=1)`.
+- **Graduation evidence** (real `uv run` execution — the four criteria `graduate_test` enforces):
+
+  | Criterion | Evidence |
+  |---|---|
+  | **RED-BEFORE** (adverse) | `max_delete=-1` accepted; `candidates[:-1]` deleted **9 of 10** (negative-slice blast radius — violation OCCURRED) |
+  | **GREEN-AFTER** (fixed) | `max_delete=-1` and `0` raise `ValidationError`/422 **before any `unlink`**; `deleted=0` (violation PREVENTED) |
+  | **DETERMINISTIC** | **3/3** identical runs |
+  | **ASSERTS-THE-PROPERTY** | asserts *"non-positive cap rejected AND `deleted_count <= min(cap, len)"* — the property, not a literal |
+
+- **`regression-graduator` → `claim_ledger graduate_test` → ACCEPTED.** All four criteria met (no
+  `graduation_criteria_unmet`). Ledger fields for `clm_c39773b8`: `probe.outcome = SURVIVED`;
+  `standing_test` set (`path .claim-guard/t0run1/probes/test_max_delete_cap_standing.py`,
+  `red_before=true`, `green_after=true`, `deterministic_runs=3`, `asserts_property=true`);
+  **`adverse_state_test.exists = TRUE`** — gate **limb 2 cleared** for this claim (the properly
+  delivered claim).
+- **Host re-run.** The graduated standing test was independently re-run on the host: **21 passed.**
+  It is a real, committable pytest.
+
+#### 8.3.2 Correctness nuance — the survivor's `aggregate` stays `PENDING` (honest, not a bug)
+
+Graduation clears **limb 2** (`adverse_state_test.exists=true`); it does **not** invent a lens
+verdict. `record_probe` / `graduate_test` deliberately **never fabricate a `CONFIRMED`** — so with no
+`correspondence-auditor` or `pen-tester` verdict recorded for `clm_c39773b8`, its `aggregate` stays
+**`PENDING`**. This is correct, honest behaviour: the standing test proves the adverse-state property
+holds, but a *verdict* still requires a lens to have ruled — the tool will not manufacture one.
+
+#### 8.3.3 Multi-claim fan-out — `coverage.probed = 3`
+
+Ledger `t0run1` now records **three** probed claims, spanning **both** outcome branches and the
+probe-only case:
+
+| Claim | Type | Outcome | Ledger effect |
+|---|---|---|---|
+| `clm_2a25c125` | safety | **FALSIFIED → REFUTED** (§8.2) | `aggregate=REFUTED` + `file:line`; new-defect finding |
+| `clm_c39773b8` | quantitative | **SURVIVED → graduated** | `standing_test` set; `adverse_state_test.exists=true`; `aggregate=PENDING` |
+| `clm_103eba07` | — | **SURVIVED** (probe only, no graduation) | probe recorded; not graduated |
+
+`coverage.probed = 3` (was 1 after §8.2). Same **in-process-model caveat** as §8.2.2 applies —
+faithful in-process models of the real mechanisms, **not** live-server probes.
+
+- **Artifacts** (uncommitted, outside the repo, on the host):
+  `.amplifier/evaluation/claim-guard/ki2-graduation/` — `ledger.json`,
+  `probes/clm_c39773b8.spec.md`, `probes/clm_c39773b8_probe.py`,
+  `probes/test_max_delete_cap_standing.py`, `probes/clm_103eba07_probe.py`.
+
+#### 8.3.4 What remains (the one residual)
+
+Only **full-fidelity live probes** remain (infra-gated): the same loop against a real degraded Neo4j
+in a nested Docker/Incus twin, which needs a container-capable host. All three loop stages
+(`probe-designer` → `pen-tester` → `regression-graduator`) and both outcome branches
+(FALSIFIED→REFUTED, SURVIVED→graduated) are now exercised end-to-end. See `KNOWN_ISSUES.md` (KI-2).
 
 ## 9. Harvest stability (KI-1)
 

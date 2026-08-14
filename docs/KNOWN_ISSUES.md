@@ -80,48 +80,66 @@ treat the exact detailed claim matrix as indicative, not byte-reproducible (acce
 
 ---
 
-## KI-2 — Phase 2 behavioural loop: EXERCISED end-to-end on one claim (in-process adverse-state model); full-fidelity + multi-claim + graduation residuals remain
+## KI-2 — Phase 2 behavioural loop: core capability demonstrated end-to-end across BOTH outcome branches (in-process adverse-state models); only live-fidelity residual remains
 
 **Status:** the dynamic bench (`probe-designer` → `pen-tester` → `regression-graduator`) and the
-`probe-claims` recipe were **built, committed, and DTU-validated for composition, recipe parse, and
-`claim_ledger` round-trip** — and the **behavioural loop has now been run end-to-end on one claim** in
-the twin (`claim-guard-dtu @7131dd2`, active bundle `claim-guard-with-probing`). This is a genuine
-behavioural exercise of the loop, with one honest fidelity caveat. It is **not full closure** — three
-residuals remain (below). See `EVALUATION.md` §8.2 for the full write-up.
+`probe-claims` recipe are **built, committed, DTU-validated, and now exercised end-to-end across both
+Phase-2 outcome branches** in the twin — **FALSIFIED → REFUTED** (first run, `claim_gate-6i1`) and
+**SURVIVED → graduated into a standing test** (this run, `claim_gate-zot`). All three loop stages have
+run, on three probed claims. **Two of the three original residuals are now closed;** only the
+live-Neo4j-fidelity residual remains, and it is **infra-gated** (no nested containers on this host).
+See `EVALUATION.md` §8.2–§8.3 for the full write-up. KI-1 is unaffected.
 
-**What genuinely ran (proven).** `probe-claims` **consumed an existing `verify-claims` ledger**
-(`run_id t0run1`, 54 claims) via the `run_id` seam — it consumed, did not re-harvest — and drove the
-loop end-to-end on `clm_2a25c125` (*"a degraded server does not create a duplicate `Node`"*, type
-`safety`, the core B-1 corruption claim): `probe-designer` produced the spec → `pen-tester`
-**designed, built, and RAN** the adverse-state experiment, observing for the **specific violation**
-(duplicate rows = corruption, not liveness) → the result was **structurally recorded** via
-`record_probe` / `record_verdict`. Outcome: **FALSIFIED → verdict `REFUTED`**, with a red-before /
-green-after control (ADVERSE = constraint dropped → **25/25 duplicate rounds, max `COUNT(*)`=8, 175
-extra rows**; CONTROL = constraint present → **0/25, max `COUNT(*)`=1**; independently re-run on host,
-identical, deterministic, stdlib-only). The ledger shows `clm_2a25c125` `aggregate=REFUTED` with
-**`file:line` evidence** (the executed probe script + `neo4j_store.py:988-999` and `:1287`), and
-**coverage `probed=1` (no longer 0)**. **No graduation** occurred — correct: a FALSIFIED probe is a
-new-defect finding, not a survivor to graduate.
+**Both branches proven end-to-end.**
 
-**The honest caveat.** The twin has **no nested container capability** (no `docker`/`incus`), so the
-adverse state was the **design-sanctioned lighter path**: a self-contained stdlib-Python repro that
-**faithfully models** the exact mechanism the claim rests on (a `MERGE` on `(node_id, workspace)` with
-the `:Node` uniqueness constraint dropped — the degraded window). It **demonstrably surfaced the real
-B-1 violation**, but it is an **in-process model, not a live degraded Neo4j server.** Do not overclaim
-it as a live-Neo4j probe.
+- **FALSIFIED → REFUTED** (`claim_gate-6i1`, twin `@7131dd2`). `probe-claims` consumed an existing
+  `verify-claims` ledger (`run_id t0run1`, 54 claims) via the `run_id` seam — consumed, did not
+  re-harvest — and drove the loop on `clm_2a25c125` (*"a degraded server does not create a duplicate
+  `Node`"*, `safety`, core B-1): `probe-designer` → `pen-tester` **designed/built/RAN** the
+  adverse-state experiment (observing the specific violation, not liveness) → **REFUTED** recorded with
+  red-before/green-after control (ADVERSE 25/25 duplicate rounds, max `COUNT(*)`=8, 175 extra rows;
+  CONTROL 0/25, max=1; host re-run identical, deterministic). Ledger: `aggregate=REFUTED` with
+  `file:line` (`neo4j_store.py:988-999`, `:1287`). A FALSIFIED probe is correctly a **new-defect
+  finding, not graduated.**
+- **SURVIVED → graduated** (`claim_gate-zot`, twin `@9ed4d1b`). Survivor `clm_c39773b8`
+  (*"`reclaim_blobs` deletes at most `max_delete` blob files in apply mode"*, `quantitative`, real
+  **B-3** source asymmetry: adverse `admin.py:653` `max_delete: int | None = None` vs fixed
+  `admin.py:678` `Field(default=None, ge=1)`). `regression-graduator` → `claim_ledger graduate_test`
+  → **ACCEPTED** — all four criteria met (no `graduation_criteria_unmet`): **RED-BEFORE**
+  (`max_delete=-1` → `candidates[:-1]` deleted **9 of 10**), **GREEN-AFTER** (`max_delete=-1` and `0`
+  raise `ValidationError`/422 before any `unlink`, `deleted=0`), **DETERMINISTIC** (3/3),
+  **ASSERTS-THE-PROPERTY** (*"non-positive cap rejected AND `deleted_count <= min(cap, len)"*, not a
+  literal). Ledger: `probe.outcome=SURVIVED`, `standing_test` set
+  (`.claim-guard/t0run1/probes/test_max_delete_cap_standing.py`, `red_before=true`, `green_after=true`,
+  `deterministic_runs=3`, `asserts_property=true`), **`adverse_state_test.exists=TRUE`** — **gate limb
+  2 cleared** (the "properly delivered claim"). The graduated standing test was independently re-run on
+  the **host: 21 passed** — a real, committable pytest.
 
-**Residuals (KI-2 stays partially open on these).**
+**Correctness nuance (honest, not a bug).** The survivor's `aggregate` stays **`PENDING`**:
+`record_probe`/`graduate_test` deliberately **never fabricate a lens verdict**, so with no
+`correspondence`/`pen-tester` verdict recorded, no `CONFIRMED` is invented. Graduation clears limb 2;
+it does not manufacture a verdict.
 
-1. **Full-fidelity live probes** — the same loop against a real degraded Neo4j in a nested
-   Docker/Incus twin (needs a container-capable host).
-2. **More than one claim** — a multi-claim, budget-capped fan-out (this run probed a single claim).
-3. **Graduation of a SURVIVING probe** — not yet demonstrated, because this probe was FALSIFIED, so
-   `regression-graduator`'s promote-survivor-into-standing-test path was correctly not exercised. It
-   still needs a run where a probe *survives*.
+**Residuals — original three, now down to one.**
 
-**Bottom line.** The acceptance goal *"exercise the Phase-2 behavioural loop end-to-end"* is
-**genuinely met** — design → build → execute → observe-the-specific-violation → structurally record
-`REFUTED` with `file:line`, and `probed` is no longer 0 — on an in-process adverse-state model. The
-three residuals above are follow-ons, tracked as the next Phase-2 exercises, not claimed as done.
+1. ~~**More than one claim**~~ — **DONE.** `coverage.probed=3` in ledger `t0run1`: `clm_2a25c125`
+   (FALSIFIED→REFUTED), `clm_c39773b8` (SURVIVED→graduated), `clm_103eba07` (SURVIVED, probe only).
+2. ~~**Graduation of a SURVIVING probe**~~ — **DONE.** `graduate_test` ACCEPTED on `clm_c39773b8`
+   (four criteria, `adverse_state_test.exists=true`, host re-run 21 passed).
+3. **Full-fidelity live probes** — **STILL OPEN (infra-gated).** The same loop against a real degraded
+   Neo4j in a nested Docker/Incus twin needs a container-capable host; this host has none. Both runs
+   used the design-sanctioned lighter path — self-contained in-process repros (`uv run --with
+   pydantic`) that **faithfully model** the exact mechanisms (MERGE-without-uniqueness-constraint race;
+   negative-slice cap inversion) — which **demonstrably surface the real B-1/B-3 violations**, but are
+   **in-process models, not live-server probes.** Do not overclaim them as live-Neo4j probes.
 
-Raw artifacts (uncommitted, outside the repo): `.amplifier/evaluation/claim-guard/ki2-probe/`.
+**Bottom line — substantially closed.** The core Phase-2 capability is **demonstrated end-to-end
+across both outcome branches**: all three loop stages ran, the FALSIFIED and SURVIVED branches both
+went through structurally (REFUTED recorded with `file:line`; a survivor graduated into a committable
+standing test that passes on the host and clears gate limb 2), and multi-claim `coverage.probed=3`.
+The **only** remaining residual is **live-container fidelity** (a real degraded Neo4j behind nested
+Docker/Incus) plus larger budget-scale runs — both follow-ons, honestly not claimed as done.
+
+Raw artifacts (uncommitted, outside the repo):
+`.amplifier/evaluation/claim-guard/ki2-probe/` (first run) and
+`.amplifier/evaluation/claim-guard/ki2-graduation/` (this run).
