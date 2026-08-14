@@ -30,10 +30,42 @@ against its own claims. Distinct from, and complementary to:
 | Happy-path E2E | success paths you thought of | after code, liveness |
 | **claim-guard** | **claim ↔ shipped-code correspondence** | **after build, before merge** |
 
-> **Status: MVP (static slice).** Ships the static claim-verification pipeline. The Phase-2
-> dynamic half (behavioural penetration testing in an isolated environment) is *designed for* but
-> not yet built — the ledger schema already carries the Phase-2 fields so it slots in without
-> rework. See `docs/tool-claim-ledger-contract.md`.
+> **Status: two phases, both built.**
+> **Phase 1 — the static gate (`verify-claims`)** is proven end-to-end against a real regression PR
+> (see *What a real run produces* below).
+> **Phase 2 — the dynamic behavioural pen-testing bench (`probe-claims`)** is built, committed, and
+> **DTU-validated for composition/parse/tool round-trip** (see `docs/EVALUATION.md` §"Phase 2
+> validation (DTU)"). The full behavioural loop — stand up an adverse state in a Digital Twin →
+> attack it → graduate the surviving probe into a standing test — is the intended use and is run
+> **per-changeset inside a Digital Twin**; it has not yet been exercised end-to-end on a real target.
+> The two phases are joined only by the shared ledger, so Phase 2 composes onto any completed static
+> run. See the **Two phases** section below.
+
+---
+
+## Two phases: static gate + dynamic pen-testing
+
+claim-guard runs as **two phases joined only by a shared ledger** — not by code coupling. Phase 2
+reads the ledger Phase 1 wrote (by `run_id`) and composes onto **any** completed static run.
+
+| | **Phase 1 — `verify-claims`** (static gate) | **Phase 2 — `probe-claims`** (dynamic pen-testing) |
+|---|---|---|
+| Question | *"Does the shipped code do what the claim says?"* | *"Can I make the forbidden thing actually happen?"* |
+| Method | read the source adversarially; refute against `file:line` | stand the adverse state up in a **Digital Twin** and attack it |
+| Bench | 6 static lenses (harvest pair + 2 core + 2 conditional) | 3 dynamic agents (`probe-designer`, `pen-tester`, `regression-graduator`) |
+| Verdicts | `CONFIRMED / REFUTED / UNTESTABLE` (+ deterministic gate) | empirical `REFUTED` (new defect) or a **graduated standing test** |
+| Needs | any session (LSP for the chokepoint lens) | a **DTU-capable environment** (Incus/Docker) |
+| Terminates | at Gate B ("proceed to dynamic probing?") | at the final re-gate over the enriched ledger |
+| Status | **proven end-to-end** on a real PR | **built + DTU-validated for compose/parse/tool round-trip**; full behavioural loop run per-changeset in a twin |
+
+**The ledger is the seam.** `verify-claims` produces `.claim-guard/<run_id>/ledger.json`;
+`probe-claims` takes that same `run_id`, probes the claims whose *type* requires behavioural proof,
+and writes the empirical results back to the same ledger. There is no other connection between the
+two recipes — deleting Phase 2 leaves Phase 1 completely intact, and Phase 2 can be run days later on
+a static run that already finished.
+
+See **[Phase 2 — dynamic behavioural pen-testing](#phase-2--dynamic-behavioural-pen-testing-probe-claims)**
+below for the bench, the eligibility rule, graduation, and the Phase-2 install.
 
 ---
 
@@ -227,40 +259,147 @@ claim to verify against the shipped code).
 
 ```
 amplifier-bundle-claim-guard/
-├── bundle.md                              # thin standalone (includes foundation, modes, recipes, lsp, own behavior)
-├── behaviors/claim-guard.yaml             # THE REUSABLE CAPABILITY: tool + 6 agents + awareness (this is what --app installs)
-├── agents/                                # the 6 static-bench agents
-│   ├── claim-harvester.md
-│   ├── purpose-inquisitor.md
-│   ├── correspondence-auditor.md
-│   ├── test-correspondence-auditor.md
-│   ├── chokepoint-mapper.md
-│   └── boundary-adversary.md
+├── bundle.md                              # thin STATIC standalone (foundation, modes, recipes, lsp, own behavior)
+├── bundles/with-probing.yaml              # PHASE-2 standalone: static + dynamic behaviors + DTU/parallax/tester
+├── behaviors/
+│   ├── claim-guard.yaml                   # STATIC capability: tool + 6 agents + awareness (this is what --app installs)
+│   └── claim-guard-probing.yaml           # PHASE-2 capability: tool + 3 dynamic agents
+├── agents/                                # 6 static-bench + 3 dynamic-bench agents
+│   ├── claim-harvester.md                 # static
+│   ├── purpose-inquisitor.md              # static
+│   ├── correspondence-auditor.md          # static
+│   ├── test-correspondence-auditor.md     # static
+│   ├── chokepoint-mapper.md               # static
+│   ├── boundary-adversary.md              # static
+│   ├── probe-designer.md                  # Phase 2
+│   ├── pen-tester.md                      # Phase 2
+│   └── regression-graduator.md            # Phase 2
 ├── context/claim-guard-awareness.md       # thin awareness pointer (~250 tokens)
 ├── modes/claim-guard.md                   # review posture — blocks write_file/edit_file (root-only)
-├── skills/                                # concierge playbook + 4 discipline skills (root-only)
+├── skills/                                # concierge playbook + 5 discipline skills (root-only)
 │   ├── claim-guard/                        # user-invocable: the concierge playbook
 │   ├── claim-harvesting/
 │   ├── verify-against-source/
 │   ├── adverse-state-catalog/
-│   └── properly-delivered-claim/
-├── recipes/verify-claims.yaml             # the staged static pipeline (root-only)
-├── modules/tool-claim-ledger/             # the deterministic ledger + gate (the trust anchor)
+│   ├── properly-delivered-claim/
+│   └── probe-patterns/                     # Phase 2: per-claim-type probe design discipline
+├── recipes/
+│   ├── verify-claims.yaml                 # Phase 1: the staged static pipeline (root-only)
+│   └── probe-claims.yaml                  # Phase 2: dynamic pen-testing pipeline, consumes the ledger by run_id
+├── modules/tool-claim-ledger/             # the deterministic ledger + gate (the trust anchor; static + Phase-2 ops)
 └── docs/
     ├── tool-claim-ledger-contract.md       # authoritative interface contract for the module
-    └── EVALUATION.md                        # acceptance-evaluation methodology (reproducible)
+    ├── EVALUATION.md                        # acceptance methodology + Phase-2 (DTU) validation
+    └── KNOWN_ISSUES.md                      # known limitations (harvester non-determinism)
 ```
 
 The **`tool-claim-ledger`** Python module is the trust anchor: worst-wins aggregation, `file:line`
 evidence enforcement, the gate rule, and stable claim IDs across runs. Its interface is specified
 in `docs/tool-claim-ledger-contract.md`.
 
-## Not built yet (Phase 2)
+## Phase 2 — dynamic behavioural pen-testing (`probe-claims`)
 
-The dynamic bench — `probe-designer`, `pen-tester` (stands up a claim's adverse state in a Digital
-Twin and actively attacks it), `regression-graduator` — and the `probe-claims.yaml` recipe. The
-ledger schema already carries `probe_eligibility`, `adverse_state_test`, and the `DEFERRED` state
-so Phase 2 composes on without reshaping anything.
+Static reading proves a *gate is absent*; only **execution** proves a protection is real. Phase 2
+takes the claims a static run marked as needing behavioural proof, stands their **adverse state** up
+in an isolated **Digital Twin**, and actively attacks it — observing for the **specific forbidden
+violation** (corruption / loss / inversion / staleness), never for liveness.
+
+### The dynamic bench
+
+- **`probe-designer`** — *"What experiment, in what adverse state, would falsify this claim?"* Designs
+  the probe (adverse-state setup + exercise + the red-on-violation assertion). Does not run it.
+- **`pen-tester`** — *"Can I make the forbidden thing actually happen?"* Stands the adverse state up in
+  a DTU (delegating to `digital-twin-universe` and `parallax-discovery:antagonist` for
+  execution-based falsification), attacks it, and records the empirical outcome. A violation ⇒ an
+  empirical **REFUTED** (a *new* defect beyond static reading).
+- **`regression-graduator`** — *"Does this surviving probe deserve to become a standing test?"* Applies
+  the graduation rule and, only on a pass, promotes the probe to a committed regression test.
+
+### Probe eligibility — by claim TYPE
+
+Eligibility is decided by the claim's type, not by taste (the `claim_ledger` sets it at
+`add_claim` time):
+
+| Claim type | Static gate | Needs a behavioural probe? |
+|---|---|:---:|
+| `safety` ("X cannot happen") | proves a gate is *absent* | **yes** — presence of real protection is only proven by attack |
+| `quantitative` ("stays under N") | reading accepts wrong estimates | **yes** |
+| `temporal` ("self-clears / re-probes") | a single snapshot can't catch a latch | **yes** (three-phase: observe → repair → observe again) |
+| `concurrency` ("no dup under retry/race") | the bug lives in the interleaving | **yes** |
+| `correspondence` ("the code does X") | sufficient | no — static-sufficient |
+| `coverage` ("this is tested") | sufficient | no — static-sufficient |
+
+A probe-eligible claim that is **not** probed this pass (budget exhausted, DTU unavailable) is marked
+**deferred** — and **deferred ≠ passed**: a deferred *safety* claim still trips gate limb 2.
+
+### The graduation rule (structurally gated)
+
+A surviving probe becomes a standing regression test **only if all of**:
+
+1. **red-before** — it fails on the pre-change code, **and**
+2. **green-after** — it passes on the post-change code, **and**
+3. **deterministic ×3** — it runs the same result three times consecutively in the DTU, **and**
+4. **asserts the property** the claim forbids violating — not the repro's incidental fixture values.
+
+This is not advice — the `claim_ledger` **`graduate_test` op rejects (writes nothing)** unless
+`asserts_property`, `red_before`, `green_after` are all true and `deterministic_runs >= 3`. Only a
+graduated probe sets `adverse_state_test.exists = true` and thereby clears the safety limb; a
+survived-but-ungraduated probe does **not**.
+
+### Phase-2 ledger ops (on the same `claim_ledger` tool)
+
+Phase 2 rides the **same** deterministic ledger as the static gate — the seam is the `run_id`, not
+code coupling. Three Phase-2 ops extend the tool:
+
+| Op | What it does | Honest-gate guarantee |
+|---|---|---|
+| `record_probe` | attaches a probe result to a claim | writes `claim.probe` only; **never** touches `adverse_state_test` — a *survived* probe does not by itself clear the safety limb |
+| `defer_claim` | marks a probe-eligible claim `deferred` (rejects non-eligible claims) | never touches `adverse_state_test` — **deferred ≠ passed**; a deferred safety claim still blocks |
+| `graduate_test` | records a graduated standing test | structurally rejects unless all four graduation criteria hold; on success sets `standing_test` **and** `adverse_state_test.exists = true` |
+
+The full op surface is: `add_claim`, `list_claims`, `record_verdict`, `record_debate`, `waive`,
+**`record_probe`**, **`defer_claim`**, **`graduate_test`**, `aggregate`, `gate`, `render_matrix`.
+See `docs/tool-claim-ledger-contract.md`.
+
+### Install / compose Phase 2
+
+The dynamic bench pulls in a Digital-Twin dependency surface, so it is kept **off** the static
+bundle and shipped as a separate standalone composition, `bundles/with-probing.yaml`:
+
+```bash
+# Phase-2 standalone: static gate + dynamic bench + DTU/parallax/amplifier-tester deps
+amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=bundles/with-probing.yaml"
+```
+
+`with-probing.yaml` composes: the static behavior + the `claim-guard-probing` behavior (the 3 dynamic
+agents + `claim_ledger`) + the execution primitives the pen-tester drives —
+`parallax-discovery` (antagonist / execution-based falsification), `digital-twin-universe` (isolated
+adverse-state construction), and `amplifier-tester` (DTU setup). It **requires a DTU-capable
+environment** (Incus/Docker) because the `pen-tester` stands real adverse states up in a Digital Twin.
+
+Run Phase 2 **after** a static `verify-claims` run, handing it the same `run_id`:
+
+```text
+execute claim-guard:recipes/probe-claims.yaml with:
+  run_id:       "<the run_id produced by verify-claims>"   # the ledger seam
+  repo_path:    "<path to the worktree under review>"
+  gate_policy:  "blocking-with-waiver"
+  probe_budget: 3        # max probes to actually run this changeset (DTU spend cap)
+  max_rounds:   3
+```
+
+> **Honesty note.** The static gate is **proven end-to-end** against a real PR (above). The dynamic
+> bench is **built, committed (`593fab1`), and DTU-validated for composition, recipe parse, and
+> `claim_ledger` round-trip** (see `docs/EVALUATION.md` §"Phase 2 validation (DTU)"). Running the full
+> behavioural loop — stand up an adverse state → attack → graduate a standing test — is the intended
+> per-changeset use inside a twin and has **not yet been exercised end-to-end on a real target**. See
+> `docs/KNOWN_ISSUES.md` for current limitations.
+
+## Known issues
+
+See [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md). The headline: the **gate verdict and the
+four-blocker catch are stable run-to-run**, but the **detailed claim matrix is not yet reproducible**
+— the two harvester agents are non-deterministic, so claim counts vary between runs.
 
 ## License
 

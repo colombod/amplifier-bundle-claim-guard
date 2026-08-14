@@ -114,7 +114,46 @@ welcome — a sharper gate finds more than the human did; they are reported, not
   count — the ledger rejects unanchored CONFIRMED/REFUTED verdicts, and the acceptance holds the
   human to the same bar when reading the matrix.
 
-## 8. Where the runs live (and what is never committed)
+## 8. Phase 2 validation (DTU)
+
+**Rule: bundles are validated in a Digital Twin Universe, never by a local host install.** The
+dynamic bench pulls in a Digital-Twin dependency surface (parallax-discovery, digital-twin-universe,
+amplifier-tester) and the `pen-tester` stands real adverse states up inside a twin — so validation
+runs where the bundle would actually run, not against the developer's host, and leaves the host
+untouched.
+
+### 8.1 What was validated in the twin (compose / parse / tool round-trip)
+
+Four checks, all at the **composition and interface** level — proving the Phase-2 surface loads,
+parses, and that the ledger's Phase-2 ops round-trip. **Result: 4/4 PASS.**
+
+| # | Check | What it proves |
+|---|---|---|
+| 1 | **Root bundle composes** (`bundle.md`) | the 6 static lenses + the `claim_ledger` tool activate from the `@main` git source with **no module-activation failure** — the static gate is intact and installable as shipped |
+| 2 | **Phase-2 standalone composes** (`bundles/with-probing.yaml`) | the 3 Phase-2 agents (`probe-designer`, `pen-tester`, `regression-graduator`) resolve, and the parallax-discovery / digital-twin-universe / amplifier-tester dependency bench resolves alongside them |
+| 3 | **Both recipes parse** (`verify-claims`, `probe-claims`) | the static and dynamic pipelines are well-formed and loadable |
+| 4 | **`claim_ledger` round-trips** | `add_claim → list_claims → aggregate` works end-to-end, with the `probed` / `deferred` coverage fields live (i.e. the Phase-2 `record_probe` / `defer_claim` / `graduate_test` ops are wired and the coverage counters they feed are populated) |
+
+This is a **composition/interface** acceptance, not a behavioural one. It establishes that Phase 2
+is loadable, parseable, and that its ledger seam works — the prerequisites for a behavioural run.
+
+### 8.2 The remaining follow-up (a full behavioural pen-test in a twin — not yet done)
+
+Running the **full behavioural loop** — `probe-designer` designs the experiment, `pen-tester` stands
+the adverse state up in the twin and attacks it, `regression-graduator` graduates a surviving probe
+into a standing test — has **not** been exercised end-to-end on a real target. It is the documented
+next exercise, not a completed claim. It requires, inside the twin:
+
+- a **reachable LLM provider** (so the agents can actually run);
+- **nested Incus/Docker** (so the pen-tester can build the adverse states the probes call for);
+- a **target changeset** plus a completed **`verify-claims` ledger** present (the `run_id` seam
+  `probe-claims` consumes);
+- a **probe budget** set (the DTU-spend cap on how many probes actually run).
+
+Until that run is done, treat Phase 2 as **built and composition/interface-validated**, with the
+behavioural loop as its intended-but-unexercised use. See `KNOWN_ISSUES.md` (KI-2).
+
+## 9. Where the runs live (and what is never committed)
 
 Raw evaluation artifacts — worktrees, diffs, ledgers, matrices, and per-run logs — live **outside
 this repo**, under a workspace-local `.amplifier/evaluation/claim-guard/` tree, and are **not
