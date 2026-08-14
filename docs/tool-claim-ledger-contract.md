@@ -270,8 +270,23 @@ to clear a REFUTED without new evidence."
 
 `claim_id = "clm_" + sha1( normalize(text) + "|" + type + "|" + repo_relpath_of(source) )[:8]`
 
-- `normalize(text)` = lowercased, whitespace-collapsed, trailing punctuation stripped — so trivial
-  rewording does not fork identity, but a real change of claim does.
+- `normalize(text)` (KI-1 hardening, design/ki1-determinism-spec.md §2): Unicode NFKC + typographic
+  quote folding, then segmented into **code-spans** (backtick-delimited, `file.ext[:line]`,
+  `snake_case`/`camelCase` identifiers, numbers — preserved atomically, casefolded, with a
+  text-embedded `file:line` trailing line number stripped) and **prose-spans** (casefolded,
+  a closed contraction map expanded, punctuation folded to whitespace, a small closed set of
+  filler words/phrases removed — articles, copula/aux, and boilerplate lead-ins like
+  "the code ensures that"). Negation, modals, quantifiers, and numbers are **never** stripped —
+  over-collapsing two distinct claims into one id is the primary risk (an `identity_key` match is
+  treated as an idempotent re-add by `op_add_claim`, so a false merge silently drops a claim).
+  No token sorting, no stemming, no synonym mapping — trivial rewording (case, spacing, unicode
+  quote variants, articles, contractions, identifier case, internal punctuation) does not fork
+  identity, but a real change of claim does.
+- **Id-space shift:** the hardened normalizer computes different `claim_id`s than the prior
+  (lowercase + trailing-punctuation-only) normalizer for any text containing internal punctuation,
+  articles, or filler boilerplate. A pre-hardening ledger will not diff cleanly against a
+  post-hardening run — acceptable, since evaluation ledgers are uncommitted and disposable, and F-9
+  diffing is forward-looking from this normalizer onward.
 - Deliberately **excludes** `inferred`, `basis`, `quote`, line numbers, and the run — a claim keeps
   its identity across re-runs of an evolving PR, and across explicit↔implicit reclassification.
 - Enables iterative PR review: push new commits, re-run, and the ledger diffs verdicts against the

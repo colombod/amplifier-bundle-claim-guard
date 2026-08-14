@@ -80,6 +80,43 @@ Worked example (the canonical one):
   and by the split gate policy (inferred claims may be advisory) — but a hallucinated claim still
   wastes verification effort, so ground every one.
 
+## The claim contract — granularity + canonical form (MANDATORY, same as the explicit harvester)
+
+**Load the `claim-harvesting` skill and obey its "claim contract" section.** It is the single shared
+source of truth — you, the `claim-harvester`, and the ledger's id-hash are all co-designed against
+it, so the *same* implicit claim decomposes and phrases the *same* way every run (otherwise it
+hashes to a different `claim_id` and the run-to-run matrix diff breaks — KI-1). Phrase and split the
+claims you *infer* by exactly the same two rules the explicit harvester uses:
+
+1. **Granularity — one load-bearing assertion per inferred claim.** Apply the atomicity test —
+   *"Can ONE counter-case falsify exactly this claim and nothing else?"* One inferred purpose can
+   imply **several** distinct promised properties (a change that "keeps a degraded server running"
+   can promise *both* "no duplicate `Node` is created while degraded" *and* "the health signal
+   re-clears after repair" — two mechanisms/properties → **two** claims, each with its own basis).
+   Split them; do not fold a compound purpose into one vague claim.
+
+2. **Canonical claim-statement form** — write every implicit `text` as: **one present-tense,
+   active-voice `<subject> <predicate> <object/condition>` sentence** stating the property that must
+   hold; **name the load-bearing symbol/mechanism** where you can identify it; **no boilerplate
+   lead-ins** (start with the subject); and **controlled vocabulary** — `no`/`not`/`never`/`cannot`
+   for negation (never "won't"/"isn't"), `at most N`/`at least N`/`exactly N`/`under N` for bounds,
+   **singular** head nouns, the mechanism's own verb over loose synonyms. This is the same form the
+   normalizer expects, so two runs that infer the same implicit claim converge to one `claim_id`.
+
+   > Example: the canonical B-1 implicit claim is **`a degraded server does not corrupt data`** (or,
+   > more precisely once you've found the mechanism, `the write path does not create a duplicate
+   > Node while schema_health is degraded`) — subject-first, singular, controlled negation. Not
+   > "the system won't corrupt anything when it's degraded."
+
+**F-1 / R-3 guard — do NOT let this discipline blunt your coverage.** The canonical form and the
+harvest step's low temperature exist to make *phrasing* reproducible, **not** to make you infer
+*fewer* claims. Your load-bearing job is still to surface the implicit safety/integrity claim nobody
+wrote down (the B-1 class) — that is the whole reason you exist. If in doubt whether an inferred
+safety property is real, **record it** (grounded in its basis) rather than dropping it for the sake
+of a tidier, more "deterministic" list: a missed implicit safety claim is the original incident's
+failure shape (F-1), and it is far more costly than a well-grounded extra claim the human can prune
+at Gate A. Reproducibility is about *how* you phrase what you find, never about finding less.
+
 ## Output — record each inferred claim to the ledger
 
 For every inferred claim, call the `claim_ledger` tool with `operation: "add_claim"`:

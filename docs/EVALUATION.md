@@ -153,7 +153,94 @@ next exercise, not a completed claim. It requires, inside the twin:
 Until that run is done, treat Phase 2 as **built and composition/interface-validated**, with the
 behavioural loop as its intended-but-unexercised use. See `KNOWN_ISSUES.md` (KI-2).
 
-## 9. Where the runs live (and what is never committed)
+## 9. Harvest stability (KI-1)
+
+This section is the **acceptance measurement for KI-1** — harvester non-determinism. It is separate
+from the blocker-catch acceptance above (§1–§7, which measures *power* and *specificity*); this one
+measures **reproducibility of the claim set** run-to-run.
+
+### 9.1 What KI-1 was
+
+On repeated harvest runs against the **same** changeset, the two harvester agents produced
+**different claim counts** — observed **18 / 77 / 22 / 11** across four runs — because the change was
+decomposed into a different number of claims each run (**granularity** variance) and each claim was
+worded differently (**phrasing** variance). Phrasing variance is the worse of the two: the ledger's
+stable `claim_id` (design finding F-9) is a hash of normalized claim text + type + source, so a
+reworded restatement of the *same* claim hashes to a *different* id, defeating run-to-run matrix
+diffing. The top-line verdict and the B-1…B-4 catch stayed stable throughout; only the detailed
+matrix was non-reproducible. See `KNOWN_ISSUES.md` (KI-1).
+
+### 9.2 The two-part fix (what the metric measures)
+
+- **Code-level (`modules/tool-claim-ledger/.../identity.py`):** hardened `normalize_text` into a
+  canonical form (NFKC, code/prose segmentation with code-token preservation, casefold, a closed
+  contraction map, punctuation→space, a small closed filler set with a NEVER-STRIP guard for
+  negation/quantifiers/modals/numbers). It collapses trivial rewordings to one id **without**
+  over-collapsing distinct claims — proven by the identity unit suite (idempotence, reword-stable,
+  type-sensitive, and the R-1 minimal-pairs *distinct-claims-stay-distinct* tripwire).
+- **Prompt-level (both harvester agents + the shared `claim-harvesting` skill):** a single shared
+  **claim contract** — the atomicity rule (one load-bearing assertion per claim; split/merge
+  criteria; claim count = distinct mechanism × distinct forbidden-property) and a **canonical
+  claim-statement form** (subject–predicate, present tense, symbol-named, controlled vocabulary) that
+  the agents emit and the normalizer expects. Co-designed so they cannot drift.
+- **Determinism knob:** `temperature: 0` pinned on the two harvest steps of `verify-claims.yaml`
+  (necessary, not sufficient — a variance *reducer*, not a guarantee).
+
+### 9.3 The metric + how to run it
+
+The harness is committed at **`scripts/harvest_stability.py`**. It does **not** run the harvesters
+itself (that is an LLM step, run in a DTU per §8's never-install-locally rule); it **consumes the
+`ledger.json` files** those repeat runs produced and scores their agreement. It **imports the real
+`identity.py`**, so its `claim_id`s match the ledger exactly — which means it also detects
+**prompt↔normalizer drift** (spec risk R-6): if the agents drift from the canonical form the
+normalizer expects, id-stability drops here.
+
+It reports three metrics plus one hard guardrail:
+
+- **Jaccard@claim_id** — mean pairwise `|A∩B| / |A∪B|` over the runs' claim-id sets. Isolates the
+  **prompt** fix (granularity + phrasing): how much the claim *sets* overlap run-to-run.
+- **claim_id stability** — of the claim observations that recur across runs, the fraction that belong
+  to ids recurring across runs. Isolates the **code** fix (normalization): a recurring claim that
+  still forks its id is a normalization miss.
+- **count dispersion** — median claim count and spread (the headline symptom, 18/77/22/11).
+- **B-1…B-4 caught-every-run guardrail** — the four incident blockers must be present in **every**
+  run; a determinism gain that dropped a blocker would fail here (guards spec R-3 / F-1).
+
+**Invocation (generic paths; run against N≥5 ledgers from repeat harvests on ONE changeset):**
+
+```bash
+# Score N ledger.json files (defaults: --min-jaccard 0.9 --min-id-stability 0.9):
+python scripts/harvest_stability.py <run1>/ledger.json <run2>/ledger.json ... \
+    [--min-jaccard 0.9] [--min-id-stability 0.9] \
+    [--require-blocker B-1 --require-blocker B-2 ...] [--json]
+
+# Self-check the metric itself on synthetic claim sets (no ledgers needed):
+python scripts/harvest_stability.py --selftest
+```
+
+Exit code is **0 iff every threshold and the blocker guardrail are met**, 1 otherwise — suitable for
+wiring into the acceptance methodology. Keep the input `ledger.json` files under the uncommitted
+`.amplifier/evaluation/…` tree (§10); commit only the harness and a results **summary**.
+
+### 9.4 Status — proven now vs. the remaining confirmation
+
+**Proven now (deterministic, unit-level):**
+- the `identity.py` canonical-form invariants, including the R-1 over-collapse minimal-pairs
+  tripwire — the full module suite (**118 tests**) passes;
+- the harness's own correctness — `--selftest` passes;
+- the harness **correctly scores the pre-fix baseline as FAIL** — run over the *pre-fix* evaluation
+  ledgers it reports **mean pairwise Jaccard@claim_id 0.0**, **claim_id stability 0.0**, count
+  **11–77**. That 0.0 / 0.0 is the **"before"** the fix must beat, and it confirms the metric is
+  sensitive to exactly the failure KI-1 describes.
+
+**Remaining (empirical, in-twin — not yet done):** the **N≥5 live harvest run** on one fixed
+changeset, in a Digital Twin (per the never-install-locally rule), to confirm the *post-fix* live
+Jaccard@claim_id and claim_id stability clear the ≥0.9 thresholds while B-1…B-4 stay caught every
+run. Until that run is done, the deterministic half is proven and the harness + baseline are in
+place, but the **live reproducibility clearance is the outstanding acceptance step** — do not read
+the unit-level proof as the empirical confirmation. Tracked in `KNOWN_ISSUES.md` (KI-1).
+
+## 10. Where the runs live (and what is never committed)
 
 Raw evaluation artifacts — worktrees, diffs, ledgers, matrices, and per-run logs — live **outside
 this repo**, under a workspace-local `.amplifier/evaluation/claim-guard/` tree, and are **not

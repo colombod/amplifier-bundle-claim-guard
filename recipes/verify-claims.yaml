@@ -73,6 +73,23 @@ stages:
       # Cold: references only the changeset + docs, never purpose-inquisitor's output.
       - id: "harvest-explicit"
         agent: "claim-guard:claim-harvester"
+        # KI-1 determinism pin (spec §5). temperature: 0 makes the EXTRACTION harvest as
+        # reproducible as the stack allows — this is an extraction task, so 0 costs no coverage.
+        # NECESSARY-NOT-SUFFICIENT: temp 0 is a variance *reducer*, not a determinism guarantee
+        # (LLM stacks are often non-deterministic even at 0). The durable reproducibility comes from
+        # the hardened normalize_text (identity.py) + the canonical claim-form the agent now emits.
+        # Only this recipe path gets the knob; the lightweight --app/conversational harvest cannot.
+        agent_config:
+          providers:
+            - module: "provider-anthropic"   # match the active provider for your deployment
+              config:
+                temperature: 0
+                # Also pin the MODEL version to stop model-drift forking the claim set (spec R-4):
+                # set this to your deployment's dated model, e.g. "claude-sonnet-4-5-20250929".
+                # Left commented so the step falls back to the agent's model_role routing when the
+                # dated model isn't present in a given environment (a wrong hard pin only fails at
+                # run time, not compose time) — uncomment + set for a reproducible harvest.
+                # model: "<pinned-dated-model>"
         prompt: |
           Harvest every EXPLICIT, load-bearing claim this changeset makes, and record each to the
           claim ledger (run_id={{run_id}}) via the claim_ledger tool, operation "add_claim"
@@ -93,6 +110,24 @@ stages:
       # Cold: references only the changeset + issue/why + optional council verdict.
       - id: "harvest-implicit"
         agent: "claim-guard:purpose-inquisitor"
+        # KI-1 determinism pin (spec §5). temperature: 0 for phrasing reproducibility — but this is
+        # an INFERENCE task, so watch coverage (spec R-3 / F-1): temp 0 must NOT blunt implicit-claim
+        # discovery. The agent body is instructed that reproducibility is about HOW claims are phrased,
+        # never about finding fewer of them; a missed implicit safety claim is the original incident's
+        # failure shape. Some reasoning models pin temperature internally and will ignore this override
+        # — acceptable, since the output is UNIONed and human-reviewed at Gate A. NECESSARY-NOT-
+        # SUFFICIENT: durable reproducibility comes from the canonical claim-form + hardened
+        # normalize_text, not from this knob alone.
+        agent_config:
+          providers:
+            - module: "provider-anthropic"   # match the active provider for your deployment
+              config:
+                temperature: 0
+                # Pin the MODEL version too (spec R-4); set to your deployment's dated model, e.g.
+                # "claude-sonnet-4-5-20250929". Left commented so the step falls back to the agent's
+                # model_role routing when that dated model isn't present (a wrong hard pin only fails
+                # at run time, not compose time) — uncomment + set for a reproducible harvest.
+                # model: "<pinned-dated-model>"
         prompt: |
           Infer the IMPLICIT claims this changeset makes — what it exists FOR, even when unstated —
           and record each to the claim ledger (run_id={{run_id}}) via claim_ledger "add_claim"

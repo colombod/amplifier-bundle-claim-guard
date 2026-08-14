@@ -50,6 +50,66 @@ concern was handled in the code" — exactly the promises made in prose and unde
 Keep claims whose falseness would matter: guarantees, prevention, bounds, invariants, coverage.
 Discard prose that asserts nothing testable ("cleaned up", "improved readability").
 
+## The claim contract (shared source of truth — both harvesters obey it)
+
+> This is the **single contract** the `claim-harvester` and `purpose-inquisitor` both follow, and it
+> is co-designed with the ledger's `normalize_text` (the stable-`claim_id` hash, F-9). It exists so
+> the *same* underlying claim decomposes and phrases the *same* way every run — otherwise it hashes
+> to a different id and the run-to-run matrix diff breaks (KI-1). **Do not let this drift from the
+> normalizer:** the boilerplate you omit here is exactly what the normalizer strips; the
+> meaning-critical words you keep here are exactly what it preserves.
+
+### Granularity — one load-bearing assertion per claim (kills count variance)
+
+Decompose the change **deterministically, not by mood.** The claim count is a function of
+**(distinct mechanism × distinct forbidden-property)** in the change — *not* of how you happen to
+phrase it this run.
+
+- **Atomicity test — the decisive rule:** *"Can ONE counter-case falsify exactly this claim and
+  nothing else?"* If yes → it is one claim. If falsifying it takes **two independent counter-cases**
+  → **split**.
+- **SPLIT when** a candidate names two distinct mechanisms/symbols, OR conjoins two independently
+  verifiable properties ("gates writes **and** self-clears" → two claims), OR mixes two forbidden
+  violation classes (corruption vs staleness).
+- **MERGE (do not split) when** the parts cannot be refuted independently — a single mechanism whose
+  single load-bearing line enforces one property is **one** claim even if the sentence is compound
+  ("reads `schema_health` and refuses the write" is one gate = one claim).
+- **One claim per (mechanism × property).** Property ∈ {corruption, loss, inversion, staleness,
+  bound/quantity, idempotence, coverage}. Enumerate the change's mechanisms and the property each
+  must hold; **that grid IS the claim set.** Build the grid before you write any claim text.
+
+### Canonical claim-statement form (kills phrasing variance)
+
+Write every claim's `text` in this exact shape, so trivially-different wordings converge to one id:
+
+- **One declarative sentence, `<subject> <predicate> <object/condition>`, present tense, active
+  voice.** ("the write path reads `schema_health` before writing" — *not* "`schema_health` will be
+  read by the write path before writes occur").
+- **Name the load-bearing symbol/mechanism in the text** — `max_delete`, `schema_health`,
+  `_handle_exhausted_batch`. Symbols are line-stable, high-signal discriminators that keep distinct
+  claims distinct.
+- **Put the `file:line` in the `source` field, not the text.** `source` already handles line drift;
+  keep line refs out of the sentence.
+- **No boilerplate lead-ins.** Never start with "the code ensures that…", "this change guarantees…",
+  "the system will…". **Start with the subject.** *(These lead-ins are exactly what the normalizer
+  strips — so writing them changes nothing but risks meaning drift; omit them.)*
+- **Controlled vocabulary for the meaning-critical words** (the normalizer deliberately does NOT fold
+  these, so you must standardize them here):
+  - **negation:** use `no` / `not` / `never` / `cannot` — never "won't", "isn't", "doesn't";
+  - **bounds:** use `at most N` / `at least N` / `exactly N` / `under N` — never "no more than",
+    "up to";
+  - **singular head noun** for the violated property: "no duplicate `Node` is created" — never
+    "no duplicate Nodes are created";
+  - prefer the **mechanism's own verb** — `gate`, `validate`, `reject`, `refuse` — over loose
+    synonyms ("blocks", "stops", "checks").
+
+**Worked example (canonical form ↔ normalizer agreement).** Two authors, same claim:
+"The code ensures that `max_delete` is a cap." and "`max_delete` is a cap" — both must be written
+canonically as **`max_delete` caps deletes** (subject-first, symbol named, no boilerplate). The
+normalizer then maps both to the same id: it strips the `the code ensures that` boilerplate and the
+`is a`/article fillers, leaving one stable hash. Emit the canonical form and the agreement is
+automatic; emit boilerplate and you rely on the normalizer to undo it, which is fragile.
+
 ## Typing — and the safety bias (F-8)
 
 Type each claim: `correspondence | safety | quantitative | temporal | concurrency | coverage`. The

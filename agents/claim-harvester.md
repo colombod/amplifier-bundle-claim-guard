@@ -62,6 +62,40 @@ Keep especially:
 - bounds / caps ("stays under 25K tokens", "max_delete is a cap");
 - invariants ("idempotent", "self-clears", "exactly once").
 
+## The claim contract — granularity + canonical form (MANDATORY)
+
+**Load the `claim-harvesting` skill and obey its "claim contract" section.** It is the single shared
+source of truth — both harvesters and the ledger's id-hash are co-designed against it, so the *same*
+claim decomposes and phrases the *same* way every run. If two runs word or split the same claim
+differently, it hashes to a different `claim_id` and the run-to-run matrix diff breaks (KI-1). Two
+rules, applied to every claim you record:
+
+1. **Granularity — one load-bearing assertion per claim.** Decompose deterministically, not by mood:
+   the claim count is **(distinct mechanism × distinct forbidden-property)**, not a function of
+   phrasing. Apply the **atomicity test — *"Can ONE counter-case falsify exactly this claim and
+   nothing else?"*** If yes → one claim; if it takes two independent counter-cases → **split**. Split
+   two mechanisms or two independently-verifiable properties; **merge** parts that cannot be refuted
+   independently (one mechanism + one load-bearing line + one property = one claim, even if the
+   sentence is compound).
+
+2. **Canonical claim-statement form** — write every `text` as: **one present-tense, active-voice
+   `<subject> <predicate> <object/condition>` sentence**; **name the load-bearing symbol/mechanism**
+   in the text (`max_delete`, `schema_health`); **no boilerplate lead-ins** ("the code ensures
+   that…", "this change guarantees…" — start with the subject); and **controlled vocabulary** for the
+   meaning-critical words — `no`/`not`/`never`/`cannot` for negation (never "won't"/"isn't"),
+   `at most N`/`at least N`/`exactly N`/`under N` for bounds, **singular** head nouns, and the
+   mechanism's own verb (`gate`/`validate`/`reject`/`refuse`) over loose synonyms.
+
+   > **Why this form, and how it agrees with the ledger:** the boilerplate you are told to omit is
+   > exactly what the normalizer strips, and the meaning-critical words you standardize are exactly
+   > what it preserves. Example: "The code ensures that `max_delete` is a cap." and "`max_delete` is a
+   > cap" must **both** be written canonically as **`max_delete` caps deletes** — and the normalizer
+   > then maps both to one stable `claim_id`. Emit the canonical form and agreement is automatic;
+   > emit boilerplate and you are relying on the normalizer to undo it, which is fragile.
+
+This changes *how you phrase and split* claims; it does **not** change your explicit-only remit or
+the UNION-not-intersect contract below.
+
 ## Claim typing (drives downstream routing) — bias toward `safety`
 
 Assign each claim a `type`:
