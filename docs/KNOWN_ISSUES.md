@@ -80,13 +80,48 @@ treat the exact detailed claim matrix as indicative, not byte-reproducible (acce
 
 ---
 
-## KI-2 — Phase 2 behavioural loop not yet exercised end-to-end on a real target
+## KI-2 — Phase 2 behavioural loop: EXERCISED end-to-end on one claim (in-process adverse-state model); full-fidelity + multi-claim + graduation residuals remain
 
-The dynamic bench (`probe-designer` → `pen-tester` → `regression-graduator`) and the `probe-claims`
-recipe are **built, committed, and DTU-validated for composition, recipe parse, and `claim_ledger`
-round-trip** (see `EVALUATION.md` §"Phase 2 validation (DTU)"). The **full behavioural loop** — stand
-an adverse state up in a Digital Twin, attack it, and graduate a surviving probe into a standing test
-— is the intended per-changeset use and has **not yet been run end-to-end on a real target changeset**.
-The follow-up to do so (reachable provider inside the twin, nested Incus/Docker for adverse states, a
-target changeset + a `verify-claims` ledger present, probe budget) is documented in `EVALUATION.md` as
-the next exercise, not claimed as done.
+**Status:** the dynamic bench (`probe-designer` → `pen-tester` → `regression-graduator`) and the
+`probe-claims` recipe were **built, committed, and DTU-validated for composition, recipe parse, and
+`claim_ledger` round-trip** — and the **behavioural loop has now been run end-to-end on one claim** in
+the twin (`claim-guard-dtu @7131dd2`, active bundle `claim-guard-with-probing`). This is a genuine
+behavioural exercise of the loop, with one honest fidelity caveat. It is **not full closure** — three
+residuals remain (below). See `EVALUATION.md` §8.2 for the full write-up.
+
+**What genuinely ran (proven).** `probe-claims` **consumed an existing `verify-claims` ledger**
+(`run_id t0run1`, 54 claims) via the `run_id` seam — it consumed, did not re-harvest — and drove the
+loop end-to-end on `clm_2a25c125` (*"a degraded server does not create a duplicate `Node`"*, type
+`safety`, the core B-1 corruption claim): `probe-designer` produced the spec → `pen-tester`
+**designed, built, and RAN** the adverse-state experiment, observing for the **specific violation**
+(duplicate rows = corruption, not liveness) → the result was **structurally recorded** via
+`record_probe` / `record_verdict`. Outcome: **FALSIFIED → verdict `REFUTED`**, with a red-before /
+green-after control (ADVERSE = constraint dropped → **25/25 duplicate rounds, max `COUNT(*)`=8, 175
+extra rows**; CONTROL = constraint present → **0/25, max `COUNT(*)`=1**; independently re-run on host,
+identical, deterministic, stdlib-only). The ledger shows `clm_2a25c125` `aggregate=REFUTED` with
+**`file:line` evidence** (the executed probe script + `neo4j_store.py:988-999` and `:1287`), and
+**coverage `probed=1` (no longer 0)**. **No graduation** occurred — correct: a FALSIFIED probe is a
+new-defect finding, not a survivor to graduate.
+
+**The honest caveat.** The twin has **no nested container capability** (no `docker`/`incus`), so the
+adverse state was the **design-sanctioned lighter path**: a self-contained stdlib-Python repro that
+**faithfully models** the exact mechanism the claim rests on (a `MERGE` on `(node_id, workspace)` with
+the `:Node` uniqueness constraint dropped — the degraded window). It **demonstrably surfaced the real
+B-1 violation**, but it is an **in-process model, not a live degraded Neo4j server.** Do not overclaim
+it as a live-Neo4j probe.
+
+**Residuals (KI-2 stays partially open on these).**
+
+1. **Full-fidelity live probes** — the same loop against a real degraded Neo4j in a nested
+   Docker/Incus twin (needs a container-capable host).
+2. **More than one claim** — a multi-claim, budget-capped fan-out (this run probed a single claim).
+3. **Graduation of a SURVIVING probe** — not yet demonstrated, because this probe was FALSIFIED, so
+   `regression-graduator`'s promote-survivor-into-standing-test path was correctly not exercised. It
+   still needs a run where a probe *survives*.
+
+**Bottom line.** The acceptance goal *"exercise the Phase-2 behavioural loop end-to-end"* is
+**genuinely met** — design → build → execute → observe-the-specific-violation → structurally record
+`REFUTED` with `file:line`, and `probed` is no longer 0 — on an in-process adverse-state model. The
+three residuals above are follow-ons, tracked as the next Phase-2 exercises, not claimed as done.
+
+Raw artifacts (uncommitted, outside the repo): `.amplifier/evaluation/claim-guard/ki2-probe/`.

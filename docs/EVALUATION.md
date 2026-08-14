@@ -137,21 +137,63 @@ parses, and that the ledger's Phase-2 ops round-trip. **Result: 4/4 PASS.**
 This is a **composition/interface** acceptance, not a behavioural one. It establishes that Phase 2
 is loadable, parseable, and that its ledger seam works — the prerequisites for a behavioural run.
 
-### 8.2 The remaining follow-up (a full behavioural pen-test in a twin — not yet done)
+### 8.2 End-to-end probe run (one claim) — the behavioural loop actually executed
 
-Running the **full behavioural loop** — `probe-designer` designs the experiment, `pen-tester` stands
-the adverse state up in the twin and attacks it, `regression-graduator` graduates a surviving probe
-into a standing test — has **not** been exercised end-to-end on a real target. It is the documented
-next exercise, not a completed claim. It requires, inside the twin:
+The behavioural loop has now been run **end-to-end on one claim** in the twin
+(`claim-guard-dtu @7131dd2`, active bundle `claim-guard-with-probing`). This is a genuine behavioural
+result, not a composition check — with one honest caveat about adverse-state fidelity (§8.2.2).
 
-- a **reachable LLM provider** (so the agents can actually run);
-- **nested Incus/Docker** (so the pen-tester can build the adverse states the probes call for);
-- a **target changeset** plus a completed **`verify-claims` ledger** present (the `run_id` seam
-  `probe-claims` consumes);
-- a **probe budget** set (the DTU-spend cap on how many probes actually run).
+#### 8.2.1 What executed, and the outcome
 
-Until that run is done, treat Phase 2 as **built and composition/interface-validated**, with the
-behavioural loop as its intended-but-unexercised use. See `KNOWN_ISSUES.md` (KI-2).
+- **Input — consumed, did not re-harvest.** `probe-claims` consumed an **existing** `verify-claims`
+  ledger (`run_id t0run1`, **54 claims**) via the `run_id` seam. The static harvest was not re-run.
+- **Claim probed.** `clm_2a25c125` — *"a degraded server does not create a duplicate `Node`"*,
+  **type `safety`** — i.e. the core **B-1 corruption** claim.
+- **Loop stages that ran.** `probe-designer` produced the probe spec → `pen-tester` designed, built,
+  and **ran** the adverse-state experiment, observing for the **specific violation** (duplicate rows
+  = corruption), never liveness → the result was recorded structurally via `record_probe` /
+  `record_verdict`.
+- **Outcome — FALSIFIED → verdict `REFUTED`.** The probe made the forbidden violation happen, with a
+  **red-before / green-after control**:
+
+  | Adverse-state control | Result | Observation |
+  |---|---|---|
+  | **ADVERSE** — `:Node` uniqueness constraint DROPPED (the degraded window) | **25/25 rounds produced duplicates** | max `COUNT(*)` = **8**, **175 extra rows** |
+  | **CONTROL** — constraint present | **0/25 rounds** | max `COUNT(*)` = **1** |
+
+  8 barrier-synced concurrent workers × 25 rounds. Independently re-run **on the host**: identical
+  result (adverse 8 / control 1), deterministic, stdlib-only.
+- **Ledger effect.** `clm_2a25c125` `aggregate = REFUTED` with **`file:line` evidence** — the executed
+  probe script plus `neo4j_store.py:988-999` (the degraded window) and `neo4j_store.py:1287` (the
+  unconditional MERGE with no `schema_health` gate). Coverage **`probed = 1`** (no longer 0). **No
+  graduation** occurred — correct: a FALSIFIED probe is a *new-defect finding*, not a survivor to
+  graduate into a standing test.
+- **Artifacts** (uncommitted, outside the repo, on the host): `.amplifier/evaluation/claim-guard/ki2-probe/`
+  — `ledger.json`, `probes/clm_2a25c125.spec.md`, `probes/clm_2a25c125_probe.py`.
+
+#### 8.2.2 The honest caveat — an in-process MODEL, not a live Neo4j server
+
+The twin **has no nested container capability** (no `docker`, no `incus` binary), so the pen-tester
+took the **design-sanctioned lighter path**: a self-contained **stdlib-Python repro** that faithfully
+models the exact mechanism the claim rests on — a `MERGE` on `(node_id, workspace)` with the `:Node`
+uniqueness constraint dropped (the degraded window per `neo4j_store.py:988-999` and the unconditional
+MERGE at `:1287`). This is a **faithful in-process model of the real race, not a live degraded Neo4j
+server.** It demonstrably surfaced the real B-1 violation and its red-before/green-after control — but
+**full-fidelity confirmation against a real degraded Neo4j would require a host with nested
+Docker/Incus.** Do not overclaim this as a live-Neo4j probe.
+
+#### 8.2.3 Residuals (what a fuller Phase-2 acceptance still needs)
+
+The loop is genuinely exercised end-to-end, but three things remain for a complete Phase-2 acceptance:
+
+- **Full-fidelity live probes** — the same loop against a real degraded Neo4j in a nested
+  Docker/Incus twin (needs a container-capable host).
+- **More than one claim** — a multi-claim, budget-capped fan-out (this run probed a single claim).
+- **Graduation of a SURVIVING probe** — this claim was FALSIFIED, so `regression-graduator`'s
+  promote-survivor-into-standing-test path is correctly **not** exercised here; it still needs a run
+  where a probe *survives* to demonstrate graduation.
+
+See `KNOWN_ISSUES.md` (KI-2) for the tracked-residual summary.
 
 ## 9. Harvest stability (KI-1)
 
