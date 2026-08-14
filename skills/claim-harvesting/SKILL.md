@@ -110,6 +110,11 @@ normalizer then maps both to the same id: it strips the `the code ensures that` 
 `is a`/article fillers, leaving one stable hash. Emit the canonical form and the agreement is
 automatic; emit boilerplate and you rely on the normalizer to undo it, which is fragile.
 
+This controlled vocabulary is enforced by
+`modules/tool-claim-ledger/tests/test_vocab_drift.py` (R-6 drift guard) — if you edit the negation
+words, bound tokens, or boilerplate phrases above, mirror the change in that test AND in
+`identity.py`'s `_NEVER_STRIP`/`_FILLER_PHRASES`, or the test fails.
+
 ## Typing — and the safety bias (F-8)
 
 Type each claim: `correspondence | safety | quantitative | temporal | concurrency | coverage`. The
