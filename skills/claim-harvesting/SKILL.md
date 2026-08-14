@@ -59,61 +59,131 @@ Discard prose that asserts nothing testable ("cleaned up", "improved readability
 > normalizer:** the boilerplate you omit here is exactly what the normalizer strips; the
 > meaning-critical words you keep here are exactly what it preserves.
 
-### Granularity — one load-bearing assertion per claim (kills count variance)
+> **KI-1 path (a) — the prompt prong carries reproducibility alone.** The `temperature: 0` knob is
+> measured INERT on the shipped Opus-4.7+ harvest routing (KNOWN_ISSUES.md KI-1), so determinism
+> cannot lean on sampling. The two rules below are therefore **hard and mechanical, not guidance**:
+> a required *grid* fixes the claim SET (count + which claims), and a rigid *template* fixes each
+> claim's exact TEXT and TYPE. Same changeset → same grid → same templated claims → same `claim_id`s.
 
-Decompose the change **deterministically, not by mood.** The claim count is a function of
-**(distinct mechanism × distinct forbidden-property)** in the change — *not* of how you happen to
-phrase it this run.
+### Rule 1 — GRANULARITY: build the (mechanism × property) grid FIRST (mandatory output step)
 
-- **Atomicity test — the decisive rule:** *"Can ONE counter-case falsify exactly this claim and
-  nothing else?"* If yes → it is one claim. If falsifying it takes **two independent counter-cases**
-  → **split**.
-- **SPLIT when** a candidate names two distinct mechanisms/symbols, OR conjoins two independently
-  verifiable properties ("gates writes **and** self-clears" → two claims), OR mixes two forbidden
-  violation classes (corruption vs staleness).
-- **MERGE (do not split) when** the parts cannot be refuted independently — a single mechanism whose
-  single load-bearing line enforces one property is **one** claim even if the sentence is compound
-  ("reads `schema_health` and refuses the write" is one gate = one claim).
-- **One claim per (mechanism × property).** Property ∈ {corruption, loss, inversion, staleness,
-  bound/quantity, idempotence, coverage}. Enumerate the change's mechanisms and the property each
-  must hold; **that grid IS the claim set.** Build the grid before you write any claim text.
+**Before writing any claim text**, produce the grid — this is a required, explicit step, not a
+mental note:
 
-### Canonical claim-statement form (kills phrasing variance)
+1. **Enumerate the changed mechanisms** = the concrete symbols the diff adds/edits: function, class,
+   method, and field/parameter names (e.g. `schema_health`, `max_delete`, `_handle_exhausted_batch`,
+   `iteration_count`). Take them **verbatim from the diff** — they are line-stable discriminators and
+   the only source of per-claim specificity in the template. Do not invent mechanisms; do not omit a
+   changed one.
+2. **Cross each mechanism with the property enum** (exactly these seven, no others):
+   `corruption`, `loss`, `inversion`, `staleness`, `bound_quantity`, `idempotence`, `coverage`.
+3. **Emit EXACTLY ONE claim per OCCUPIED cell** — a cell is occupied iff the change makes a
+   load-bearing promise about that (mechanism × property). No more, no less. **The grid IS the claim
+   set** — this is what makes the count reproducible (it killed the 54-vs-85 run-to-run spread).
 
-Write every claim's `text` in this exact shape, so trivially-different wordings converge to one id:
+**Atomicity check (per cell):** *"Can ONE counter-case falsify exactly this cell and nothing else?"*
+If falsifying a candidate needs **two independent counter-cases**, it is two cells (split). A single
+mechanism whose single load-bearing line enforces one property is **one** cell even if the source
+sentence is compound. Two different mechanisms guarding the same property are two cells (the symbol
+differs). Multiple *code paths* into ONE mechanism guarding ONE property are **one** cell — path
+coverage is the chokepoint-mapper lens's job, not a second claim.
 
-- **One declarative sentence, `<subject> <predicate> <object/condition>`, present tense, active
-  voice.** ("the write path reads `schema_health` before writing" — *not* "`schema_health` will be
-  read by the write path before writes occur").
-- **Name the load-bearing symbol/mechanism in the text** — `max_delete`, `schema_health`,
-  `_handle_exhausted_batch`. Symbols are line-stable, high-signal discriminators that keep distinct
-  claims distinct.
-- **Put the `file:line` in the `source` field, not the text.** `source` already handles line drift;
-  keep line refs out of the sentence.
-- **No boilerplate lead-ins.** Never start with "the code ensures that…", "this change guarantees…",
-  "the system will…". **Start with the subject.** *(These lead-ins are exactly what the normalizer
-  strips — so writing them changes nothing but risks meaning drift; omit them.)*
-- **Controlled vocabulary for the meaning-critical words** (the normalizer deliberately does NOT fold
-  these, so you must standardize them here):
-  - **negation:** use `no` / `not` / `never` / `cannot` — never "won't", "isn't", "doesn't";
-  - **bounds:** use `at most N` / `at least N` / `exactly N` / `under N` — never "no more than",
-    "up to";
-  - **singular head noun** for the violated property: "no duplicate `Node` is created" — never
-    "no duplicate Nodes are created";
-  - prefer the **mechanism's own verb** — `gate`, `validate`, `reject`, `refuse` — over loose
-    synonyms ("blocks", "stops", "checks").
+**Worked example (grid from a diff hunk).** Diff adds a validator on `max_delete` and a
+`schema_health` read that is *missing* on the write path:
+```
+- def apply(max_delete: int | None = None): ...
++ def apply(max_delete: int | None = Field(default=None, ge=1)): ...   # symbol: max_delete
+  def _write_batch(...):                                               # symbol: _write_batch
++     # (no schema_health read here)
+```
+Mechanisms = {`max_delete`, `_write_batch`}. Occupied cells:
+- (`max_delete` × `bound_quantity`) — it promises to cap the count → **1 claim**
+- (`max_delete` × `inversion`) — it promises a hostile value can't invert the cap → **1 claim**
+- (`_write_batch` × `corruption`) — the write path promises not to corrupt while degraded → **1 claim**
+Three occupied cells → exactly three claims, every run.
 
-**Worked example (canonical form ↔ normalizer agreement).** Two authors, same claim:
-"The code ensures that `max_delete` is a cap." and "`max_delete` is a cap" — both must be written
-canonically as **`max_delete` caps deletes** (subject-first, symbol named, no boilerplate). The
-normalizer then maps both to the same id: it strips the `the code ensures that` boilerplate and the
-`is a`/article fillers, leaving one stable hash. Emit the canonical form and the agreement is
-automatic; emit boilerplate and you rely on the normalizer to undo it, which is fragile.
+### Rule 2 — PHRASING: the rigid claim template (fixes text AND type per cell)
 
-This controlled vocabulary is enforced by
-`modules/tool-claim-ledger/tests/test_vocab_drift.py` (R-6 drift guard) — if you edit the negation
-words, bound tokens, or boilerplate phrases above, mirror the change in that test AND in
-`identity.py`'s `_NEVER_STRIP`/`_FILLER_PHRASES`, or the test fails.
+Every claim's `text` MUST be **exactly** this three-slot template — present tense, active voice,
+symbol first, nothing else (no adjectives, no negation words, no free-form restatement):
+
+```
+<mechanism_symbol> <controlled_verb> <controlled_property_object>
+```
+
+The `<verb>` and `<property_object>` are **NOT free** — they are fixed by the cell's property via
+this closed table (this is the whole degrees-of-freedom reduction). Choosing the cell fixes the
+predicate **and** the claim `type` simultaneously:
+
+| property (cell) | controlled_verb | controlled_property_object | claim `type` | example `text` |
+|---|---|---|---|---|
+| `corruption` | `preserves` | `integrity` | `safety` | `_write_batch preserves integrity` |
+| `loss` | `persists` | `writes` | `safety` | `flush_barrier persists writes` |
+| `inversion` | `rejects` | `inversion` | `safety` | `max_delete rejects inversion` |
+| `staleness` | `refreshes` | `state` | `temporal` | `schema_health refreshes state` |
+| `bound_quantity` | `caps` | `quantity` | `quantitative` | `max_delete caps quantity` |
+| `idempotence` | `deduplicates` | `effects` | `concurrency` | `iteration_count deduplicates effects` |
+| `coverage` | `covers` | `behavior` | `coverage` | `tag_legacy_pooled_iterations covers behavior` |
+
+- **Controlled verb set (closed — the ONLY verbs allowed in `text`):**
+  `preserves`, `persists`, `rejects`, `refreshes`, `caps`, `deduplicates`, `covers`.
+- **Controlled property-object set (closed — the ONLY objects allowed in `text`):**
+  `integrity`, `writes`, `inversion`, `state`, `quantity`, `effects`, `behavior`.
+- **`<mechanism_symbol>`** is the exact diff symbol. Backtick it or not — the normalizer folds a
+  backticked span and a bare `snake_case`/`camelCase` token to the same code token, so both converge.
+- **Type is fixed by the property**, per the table's `type` column. The safety-typing bias (F-8) is
+  expressed *through the property choice*: if the forbidden violation is a corruption / loss /
+  inversion harm, pick that property → the type is `safety` automatically. Do not re-decide the type
+  freehand — the id hash includes `type`, so free-typed variance would fork the id.
+
+> **Why this is byte-canonical against the normalizer.** The template contains only a code symbol +
+> two plain lowercase tokens, none of which are fillers (`_FILLERS`) and none of which the normalizer
+> stems or reorders. So `normalize_text("max_delete caps quantity")` and
+> `normalize_text("`max_delete` caps quantity")` both yield exactly `max_delete caps quantity` — the
+> template normalizes to itself (modulo symbol casefold). Mentally verify any claim before recording:
+> its three tokens should survive normalization unchanged.
+
+**Specificity lives in the un-hashed fields, not the text.** The template `text` is terse on purpose
+— it is the *identity anchor*. The concrete detail (the exact line, the counter-value, the belief)
+goes in `quote` (explicit) / `basis` (implicit) and `source` (`file:line`), which are **excluded**
+from the `claim_id` hash and so cost no reproducibility. The downstream verifier reads the real code
+anyway.
+
+### The canonicalization pass (second pass — mandatory, cheap)
+
+Do not emit the template one-shot from prose; that is where free-form phrasing leaks back in.
+Instead, for each occupied cell, run this short pass **before** `add_claim`:
+1. **Draft** the claim in your own words while reading the source (find it).
+2. **Map** it to its `(mechanism × property)` cell — name the symbol and the single property.
+3. **Rewrite** to the template using the fixed tables above (verb + object + type from the cell).
+4. **Re-check** the rewrite still denotes that exact cell (symbol correct, property correct) and that
+   its three tokens normalize unchanged. Only then `add_claim`.
+Two runs that reach the same cell therefore emit the same three tokens and the same type → the same
+`claim_id`, by construction.
+
+### Suppression guard (the R-1 flip side — do not let the grid drop a real claim)
+
+The grid's risk is the mirror of over-collapse: a real claim lost because no cell was drawn for it.
+Two mandatory safeguards:
+- **A missed changed symbol is a missed claim.** Enumerate mechanisms mechanically from the diff;
+  never skip a changed function/class/field.
+- **A load-bearing claim that fits NO property cell is FLAGGED, never silently dropped.** If a change
+  makes a real promise that none of the seven properties captures, record it with the nearest
+  property **and** note the mismatch in `quote`/`basis` so the human sees it at Gate A. Do not invent
+  an eighth property (that reintroduces the variance this rule exists to remove), and do not discard
+  it as "doesn't fit."
+
+### R-6 — this contract and the normalizer are bound by a test
+
+The controlled verb set, property-object set, property→type map, negation/bound tokens, and
+boilerplate phrases above are **mirrored and asserted** in
+`modules/tool-claim-ledger/tests/test_vocab_drift.py`. If you add, rename, or retire any controlled
+verb / property object / property mapping here, you MUST update that test's `CONTRACT_*` mirrors and
+(where relevant) `identity.py`'s `_NEVER_STRIP` / `_FILLERS` / `_FILLER_PHRASES` in the **same
+change**, or the drift guard fails. Residual prose that still uses negation (`no`/`not`/`never`/
+`cannot`) or bounds (`at most N`/`at least N`/`exactly N`/`under N`) — e.g. in `quote`/`basis` or a
+human edit at Gate A — keeps those controlled tokens, and the normalizer's `_NEVER_STRIP` guard
+protects them.
 
 ## Typing — and the safety bias (F-8)
 

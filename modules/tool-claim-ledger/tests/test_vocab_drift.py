@@ -198,3 +198,170 @@ def test_claim_and_its_negation_stay_distinct() -> None:
         "exactly the over-collapse the R-1 tripwire and this R-6 drift guard "
         "both exist to prevent."
     )
+
+
+# ===========================================================================
+# KI-1 PATH (a) -- the rigid claim template.
+#
+# MIRROR of skills/claim-harvesting/SKILL.md "The claim contract" ->
+# "Rule 2 -- PHRASING: the rigid claim template". The prompt prong now carries
+# reproducibility alone (temperature:0 is inert on the Opus-4.7+ harvest
+# routing), so every claim's text is the fixed three-slot template
+#     <mechanism_symbol> <controlled_verb> <controlled_property_object>
+# and the (verb, object, type) are fixed by the cell's property. This section
+# binds that closed vocabulary to the normalizer, so editing the contract's
+# tables without updating this mirror (or vice versa) fails a TEST.
+#
+# If you add / rename / retire a controlled verb, property object, or the
+# property->type map in SKILL.md, update the mirror below in the SAME change.
+# ===========================================================================
+
+# property -> (controlled_verb, controlled_property_object, claim_type)
+CONTRACT_PREDICATE: dict[str, tuple[str, str, str]] = {
+    "corruption": ("preserves", "integrity", "safety"),
+    "loss": ("persists", "writes", "safety"),
+    "inversion": ("rejects", "inversion", "safety"),
+    "staleness": ("refreshes", "state", "temporal"),
+    "bound_quantity": ("caps", "quantity", "quantitative"),
+    "idempotence": ("deduplicates", "effects", "concurrency"),
+    "coverage": ("covers", "behavior", "coverage"),
+}
+
+CONTRACT_PROPERTY_ENUM = frozenset(CONTRACT_PREDICATE)
+CONTRACT_TEMPLATE_VERBS = frozenset(v for v, _o, _t in CONTRACT_PREDICATE.values())
+CONTRACT_PROPERTY_OBJECTS = frozenset(o for _v, o, _t in CONTRACT_PREDICATE.values())
+
+# The claim `type` enum the ledger accepts (mirrors ops.py / the contract).
+VALID_CLAIM_TYPES = frozenset(
+    {"correspondence", "safety", "quantitative", "temporal", "concurrency", "coverage"}
+)
+
+# Realistic snake_case symbols -- unambiguously code spans, casefold to
+# themselves, and never fillers (a single-letter symbol like "a" would be a
+# filler, which real diff symbols never are).
+_SAMPLE_SYMBOLS = ("alpha_sym", "beta_sym", "max_delete", "schema_health")
+
+
+# ---------------------------------------------------------------------------
+# 7. The template's controlled verbs and objects must survive normalization --
+#    i.e. none may be a filler. If one were, the template token would be
+#    silently dropped and two distinct cells could collapse (over-collapse) or
+#    the id would not match run-to-run (under-collapse). Either way the
+#    prompt<->normalizer agreement the template relies on would be broken.
+# ---------------------------------------------------------------------------
+
+
+def test_template_verbs_are_never_fillers() -> None:
+    offenders = CONTRACT_TEMPLATE_VERBS & _FILLERS
+    assert not offenders, (
+        f"Controlled template verbs {sorted(offenders)} are in identity._FILLERS "
+        "-- normalize_text would strip them, breaking the template's byte-canonical "
+        "agreement with the normalizer. Keep SKILL.md's verb set and identity.py in sync."
+    )
+
+
+def test_template_property_objects_are_never_fillers() -> None:
+    offenders = CONTRACT_PROPERTY_OBJECTS & _FILLERS
+    assert not offenders, (
+        f"Controlled property objects {sorted(offenders)} are in identity._FILLERS "
+        "-- normalize_text would strip them, breaking the template. Keep the contract "
+        "and identity.py in sync."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. Contract self-consistency: the property enum, the predicate table, and the
+#    property->type map are one 1:1 table. A drift within SKILL.md's own tables
+#    (e.g. a property with no predicate, or a bogus type) fails here.
+# ---------------------------------------------------------------------------
+
+
+def test_contract_predicate_table_is_internally_consistent() -> None:
+    # 7 properties, each with a distinct verb and a distinct object.
+    assert len(CONTRACT_PREDICATE) == 7
+    assert len(CONTRACT_TEMPLATE_VERBS) == 7, "controlled verbs must be 1:1 with properties"
+    assert len(CONTRACT_PROPERTY_OBJECTS) == 7, "property objects must be 1:1 with properties"
+    # every mapped type is a real claim type.
+    mapped_types = {t for _v, _o, t in CONTRACT_PREDICATE.values()}
+    assert mapped_types <= VALID_CLAIM_TYPES, (
+        f"contract maps a property to an unknown claim type: {sorted(mapped_types - VALID_CLAIM_TYPES)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 9. The template is byte-canonical against normalize_text: a templated claim
+#    normalizes to exactly [symbol, verb, object] -- nothing stripped, nothing
+#    reordered, nothing added -- so two runs that reach the same cell hash to
+#    the same id. Also proves backtick-robustness (a real variance source: one
+#    run backticks the symbol, another doesn't; both must converge).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("prop", sorted(CONTRACT_PREDICATE))
+def test_template_is_byte_canonical_under_normalize(prop: str) -> None:
+    verb, obj, _type = CONTRACT_PREDICATE[prop]
+    sym = "alpha_sym"  # snake_case -> code span -> casefolds to itself
+    bare = normalize_text(f"{sym} {verb} {obj}")
+    assert bare == f"{sym} {verb} {obj}", (
+        f"template for property {prop!r} did not normalize to itself: {bare!r}. "
+        "A token was stripped/reordered -- the template is no longer byte-canonical."
+    )
+    backticked = normalize_text(f"`{sym}` {verb} {obj}")
+    assert backticked == bare, (
+        f"backticked vs bare symbol diverged for {prop!r}: {backticked!r} != {bare!r}. "
+        "Whether the harvester backticks the symbol must not fork the claim_id."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 10. Distinctness across the enum (R-1 tie-in for the new vocab): on one fixed
+#     symbol, the seven property predicates must produce seven DISTINCT
+#     claim_ids -- no two properties collapse. (Each also carries its own type,
+#     but the predicate text alone already separates them.)
+# ---------------------------------------------------------------------------
+
+
+def test_seven_properties_stay_distinct_on_one_symbol() -> None:
+    sym = "max_delete"
+    ids = {
+        compute_claim_id(f"{sym} {verb} {obj}", claim_type, "docstring:mod.py")
+        for verb, obj, claim_type in CONTRACT_PREDICATE.values()
+    }
+    assert len(ids) == len(CONTRACT_PREDICATE), (
+        "two distinct property cells on the same symbol collapsed to one claim_id "
+        "-- distinct claims would be silently merged (R-1)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 11. Same predicate, different mechanism symbol -> distinct claim_ids. The
+#     symbol is the template's only per-claim discriminator, so it MUST separate
+#     two mechanisms that guard the same property.
+# ---------------------------------------------------------------------------
+
+
+def test_same_predicate_different_symbol_stays_distinct() -> None:
+    verb, obj, claim_type = CONTRACT_PREDICATE["corruption"]
+    id_a = compute_claim_id(f"alpha_sym {verb} {obj}", claim_type, "docstring:mod.py")
+    id_b = compute_claim_id(f"beta_sym {verb} {obj}", claim_type, "docstring:mod.py")
+    assert id_a != id_b, (
+        "two different mechanisms guarding the same property collapsed to one "
+        "claim_id -- the symbol failed to discriminate them."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 12. The full templated claim is idempotent under normalization (a claim
+#     already in template form must be a fixed point).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("sym", _SAMPLE_SYMBOLS)
+def test_templated_claim_is_normalization_fixed_point(sym: str) -> None:
+    verb, obj, _type = CONTRACT_PREDICATE["bound_quantity"]
+    once = normalize_text(f"{sym} {verb} {obj}")
+    twice = normalize_text(once)
+    assert once == twice, (
+        f"normalize_text is not idempotent on the templated claim for {sym!r}: "
+        f"{once!r} -> {twice!r}."
+    )

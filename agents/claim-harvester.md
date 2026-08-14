@@ -62,36 +62,46 @@ Keep especially:
 - bounds / caps ("stays under 25K tokens", "max_delete is a cap");
 - invariants ("idempotent", "self-clears", "exactly once").
 
-## The claim contract — granularity + canonical form (MANDATORY)
+## The claim contract — the (mechanism × property) grid + rigid template (MANDATORY, HARD)
 
-**Load the `claim-harvesting` skill and obey its "claim contract" section.** It is the single shared
-source of truth — both harvesters and the ledger's id-hash are co-designed against it, so the *same*
-claim decomposes and phrases the *same* way every run. If two runs word or split the same claim
-differently, it hashes to a different `claim_id` and the run-to-run matrix diff breaks (KI-1). Two
-rules, applied to every claim you record:
+**Load the `claim-harvesting` skill and obey its "claim contract" section verbatim.** It is the
+single shared source of truth, co-designed with the ledger's id-hash, so the *same* changeset
+decomposes and phrases the *same* way every run. This is not guidance — it is the mechanism that
+makes the claim matrix reproducible (KI-1 path (a); `temperature: 0` is inert on the shipped stack,
+so the prompt prong carries determinism alone). Apply both rules to **every** claim:
 
-1. **Granularity — one load-bearing assertion per claim.** Decompose deterministically, not by mood:
-   the claim count is **(distinct mechanism × distinct forbidden-property)**, not a function of
-   phrasing. Apply the **atomicity test — *"Can ONE counter-case falsify exactly this claim and
-   nothing else?"*** If yes → one claim; if it takes two independent counter-cases → **split**. Split
-   two mechanisms or two independently-verifiable properties; **merge** parts that cannot be refuted
-   independently (one mechanism + one load-bearing line + one property = one claim, even if the
-   sentence is compound).
+1. **GRANULARITY — build the (mechanism × property) grid FIRST**, as an explicit step before any
+   claim text. Enumerate the changed **symbols** from the diff (function/class/method/field names —
+   verbatim, line-stable), cross each with the seven-property enum (`corruption`, `loss`,
+   `inversion`, `staleness`, `bound_quantity`, `idempotence`, `coverage`), and emit **exactly one
+   claim per occupied cell** — no more, no less. The grid IS the claim set (same change → same grid →
+   same count). Multiple code *paths* into one mechanism guarding one property are **one** cell (path
+   coverage is the chokepoint-mapper's job, not a second claim).
 
-2. **Canonical claim-statement form** — write every `text` as: **one present-tense, active-voice
-   `<subject> <predicate> <object/condition>` sentence**; **name the load-bearing symbol/mechanism**
-   in the text (`max_delete`, `schema_health`); **no boilerplate lead-ins** ("the code ensures
-   that…", "this change guarantees…" — start with the subject); and **controlled vocabulary** for the
-   meaning-critical words — `no`/`not`/`never`/`cannot` for negation (never "won't"/"isn't"),
-   `at most N`/`at least N`/`exactly N`/`under N` for bounds, **singular** head nouns, and the
-   mechanism's own verb (`gate`/`validate`/`reject`/`refuse`) over loose synonyms.
+2. **PHRASING — the rigid template.** Every `text` is **exactly**
+   `<mechanism_symbol> <controlled_verb> <controlled_property_object>` — present tense, symbol first,
+   no negation words, no adjectives, no free-form. The verb, the property-object, **and the claim
+   `type`** are fixed by the cell's property via the skill's closed table:
 
-   > **Why this form, and how it agrees with the ledger:** the boilerplate you are told to omit is
-   > exactly what the normalizer strips, and the meaning-critical words you standardize are exactly
-   > what it preserves. Example: "The code ensures that `max_delete` is a cap." and "`max_delete` is a
-   > cap" must **both** be written canonically as **`max_delete` caps deletes** — and the normalizer
-   > then maps both to one stable `claim_id`. Emit the canonical form and agreement is automatic;
-   > emit boilerplate and you are relying on the normalizer to undo it, which is fragile.
+   | property | verb | object | type | example |
+   |---|---|---|---|---|
+   | `corruption` | `preserves` | `integrity` | `safety` | `_write_batch preserves integrity` |
+   | `loss` | `persists` | `writes` | `safety` | `flush_barrier persists writes` |
+   | `inversion` | `rejects` | `inversion` | `safety` | `max_delete rejects inversion` |
+   | `staleness` | `refreshes` | `state` | `temporal` | `schema_health refreshes state` |
+   | `bound_quantity` | `caps` | `quantity` | `quantitative` | `max_delete caps quantity` |
+   | `idempotence` | `deduplicates` | `effects` | `concurrency` | `iteration_count deduplicates effects` |
+   | `coverage` | `covers` | `behavior` | `coverage` | `tag_legacy_pooled_iterations covers behavior` |
+
+   Run the **canonicalization pass** the skill defines: draft in your own words → map to the cell →
+   rewrite to the template → re-check the three tokens normalize unchanged → `add_claim`. Two runs
+   that reach the same cell emit the same tokens and type → the same `claim_id`, by construction. The
+   specific detail (the exact line, the belief) goes in `quote` and `source`, which are **not** hashed.
+
+**Suppression guard.** Enumerate mechanisms mechanically from the diff — a missed changed symbol is a
+missed claim. If a real load-bearing promise fits **no** property cell, record it against the nearest
+property **and flag the mismatch in `quote`** for the human at Gate A; never invent an eighth property
+and never silently drop it.
 
 This changes *how you phrase and split* claims; it does **not** change your explicit-only remit or
 the UNION-not-intersect contract below.
@@ -121,11 +131,11 @@ For every claim, call the `claim_ledger` tool with `operation: "add_claim"` and 
 
 ```json
 {
-  "text": "the claim, in the author's own words where possible",
-  "type": "correspondence|safety|quantitative|temporal|concurrency|coverage",
+  "text": "<mechanism_symbol> <controlled_verb> <controlled_property_object>  (the RIGID template — never the author's own words)",
+  "type": "the type fixed by the cell's property (see the contract table) — do NOT re-type freehand",
   "source": "commit <sha> | spec:<path>#<anchor> | docstring:<file>:<line> | comment:<file>:<line> | pr-body",
   "inferred": false,
-  "quote": "the verbatim line the claim came from"
+  "quote": "the verbatim source line + any cell-mismatch note — this free-form field carries the specificity the template omits (NOT hashed)"
 }
 ```
 
