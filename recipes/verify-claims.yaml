@@ -73,12 +73,16 @@ stages:
       # Cold: references only the changeset + docs, never purpose-inquisitor's output.
       - id: "harvest-explicit"
         agent: "claim-guard:claim-harvester"
-        # KI-1 determinism pin (spec §5). temperature: 0 makes the EXTRACTION harvest as
-        # reproducible as the stack allows — this is an extraction task, so 0 costs no coverage.
-        # NECESSARY-NOT-SUFFICIENT: temp 0 is a variance *reducer*, not a determinism guarantee
-        # (LLM stacks are often non-deterministic even at 0). The durable reproducibility comes from
-        # the hardened normalize_text (identity.py) + the canonical claim-form the agent now emits.
-        # Only this recipe path gets the knob; the lightweight --app/conversational harvest cannot.
+        # KI-1 determinism pin (spec §5). Intended: temperature: 0 to reduce EXTRACTION variance.
+        # MEASURED INERT ON THE CURRENT HARVEST ROUTING (KI-1 §9.4): harvest routes to Claude
+        # Opus >= 4.7 (opus-4-8/opus-5), and the anthropic provider does NOT send a temperature for
+        # Opus >= 4.7 — it is silently ignored. So on any Opus-4.7+/Sonnet-5 deployment this pin does
+        # NOTHING and does NOT deliver determinism; only the prompt prong (canonical claim-form +
+        # hardened normalize_text) is active. The pin is LEFT IN PLACE because it is correct for a
+        # sampling-capable model and only bites there. Do NOT read this line as "temperature:0 is what
+        # makes the harvest reproducible" — on the shipped stack it is a no-op (the N=5 in-twin run
+        # scored Jaccard 0.0075 / id-stability 0.0395, FAIL). Only this recipe path carries the pin at
+        # all; the lightweight --app/conversational harvest cannot set it.
         agent_config:
           providers:
             - module: "provider-anthropic"   # match the active provider for your deployment
@@ -110,14 +114,15 @@ stages:
       # Cold: references only the changeset + issue/why + optional council verdict.
       - id: "harvest-implicit"
         agent: "claim-guard:purpose-inquisitor"
-        # KI-1 determinism pin (spec §5). temperature: 0 for phrasing reproducibility — but this is
-        # an INFERENCE task, so watch coverage (spec R-3 / F-1): temp 0 must NOT blunt implicit-claim
-        # discovery. The agent body is instructed that reproducibility is about HOW claims are phrased,
-        # never about finding fewer of them; a missed implicit safety claim is the original incident's
-        # failure shape. Some reasoning models pin temperature internally and will ignore this override
-        # — acceptable, since the output is UNIONed and human-reviewed at Gate A. NECESSARY-NOT-
-        # SUFFICIENT: durable reproducibility comes from the canonical claim-form + hardened
-        # normalize_text, not from this knob alone.
+        # KI-1 determinism pin (spec §5). Intended: temperature: 0 for phrasing reproducibility on an
+        # INFERENCE task (with the R-3/F-1 caveat that temp 0 must not blunt implicit-claim discovery —
+        # the agent body is told reproducibility is about HOW claims are phrased, never finding fewer).
+        # MEASURED INERT ON THE CURRENT HARVEST ROUTING (KI-1 §9.4): harvest routes to Claude Opus >=
+        # 4.7, and the anthropic provider does NOT send a temperature for Opus >= 4.7 — silently
+        # ignored. So this pin currently does NOTHING; only the prompt prong is active, and the shipped
+        # config still FAILED the reproducibility bar (Jaccard 0.0075 / id-stability 0.0395, N=5
+        # in-twin). LEFT IN PLACE because it is correct for a sampling-capable model and only bites
+        # there. Do NOT read this line as delivering determinism on the shipped stack.
         agent_config:
           providers:
             - module: "provider-anthropic"   # match the active provider for your deployment

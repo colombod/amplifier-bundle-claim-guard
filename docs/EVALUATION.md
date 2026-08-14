@@ -184,7 +184,12 @@ matrix was non-reproducible. See `KNOWN_ISSUES.md` (KI-1).
   claim-statement form** (subject–predicate, present tense, symbol-named, controlled vocabulary) that
   the agents emit and the normalizer expects. Co-designed so they cannot drift.
 - **Determinism knob:** `temperature: 0` pinned on the two harvest steps of `verify-claims.yaml`
-  (necessary, not sufficient — a variance *reducer*, not a guarantee).
+  (intended as a variance *reducer*, never a guarantee). **Measured to be INERT on the shipped
+  stack** — see §9.4: the harvest routes to Claude Opus ≥ 4.7, and the anthropic provider does not
+  send a `temperature` for Opus ≥ 4.7 (it is silently ignored). So on any Opus-4.7+/Sonnet-5
+  deployment this prong does nothing, and **only the prompt prong is actually active.** The pin is
+  left in place because it is correct for a sampling-capable model, but it delivers no determinism on
+  the current routing.
 
 ### 9.3 The metric + how to run it
 
@@ -222,23 +227,66 @@ Exit code is **0 iff every threshold and the blocker guardrail are met**, 1 othe
 wiring into the acceptance methodology. Keep the input `ledger.json` files under the uncommitted
 `.amplifier/evaluation/…` tree (§10); commit only the harness and a results **summary**.
 
-### 9.4 Status — proven now vs. the remaining confirmation
+### 9.4 Live result (measured) — the fix does NOT meet the bar on the shipped stack
 
-**Proven now (deterministic, unit-level):**
+The N≥5 in-twin harvest run has now been done, and the result is a **negative**: the shipped
+configuration **FAILS** the KI-1 acceptance bar. Recording it honestly.
+
+**Setup.** N=5 repeat harvests on ONE fixed changeset (the fixed PR#70 `c324cbe` changeset), run
+in a Digital Twin, bundle `@b646bf2`, scored by `scripts/harvest_stability.py` and independently
+re-scored on host. The numbers below are real measurements, not projections.
+
+| Config | Jaccard@claim_id (mean pairwise) | claim_id stability | claim counts | Bar 0.9 / 0.9 |
+|---|---|---|---|---|
+| **SHIPPED** (`verify-claims`, `temperature: 0` in `agent_config`) | **0.0075** | **0.0395** | 54 / 58 / 75 / 82 / 85 | **FAIL** |
+| bare path (no temperature pin) | 0.0 | 0.0 | 58–101 | FAIL |
+
+Both paths agree: the claim-id sets are **essentially disjoint run-to-run.** The shipped config is a
+hair above zero, not near the 0.9 target.
+
+**Root cause #1 — the temperature prong is INERT on this stack (code-proven).** The harvest routes
+to Claude Opus ≥ 4.7 (opus-4-8 / opus-5), and the anthropic provider **does not send a `temperature`
+for Opus ≥ 4.7** — it is silently ignored ("Opus 4.7+ silently ignores temperature"). So on any
+Opus-4.7+/Sonnet-5 deployment the `temperature: 0` pin does **nothing**; **only the prompt prong is
+actually active.** The near-identical scores of the shipped vs. bare paths above are the empirical
+confirmation of this: pinning temperature changed nothing because the pin never reached the model.
+
+**Root cause #2 — the dominant residual variance is paraphrase + granularity**, which
+`identity.py` **deliberately does not collapse.** The canonical normalizer omits stemming and
+synonym-folding on purpose (to avoid the R-1 false-merge risk — merging genuinely distinct claims is
+worse than failing to merge paraphrases). The prompt prong (canonical claim-statement form +
+atomicity rule) is the only thing pushing toward convergence, and **the prompt prong alone does not
+force it**: the agents still paraphrase the same claim differently and decompose the change at
+different granularities run-to-run, so the normalized text differs and the `claim_id`s fork.
+
+**What this does and does not invalidate.**
+- The **code prong is still correct and proven** — it collapses *trivial* rewording (case, unicode,
+  punctuation, articles, contractions, identifier-case) as designed; the 118-test suite and the R-1
+  minimal-pairs tripwire all pass. It simply does not, by itself, collapse *paraphrase*, which is the
+  variance that actually dominates here.
+- The **R-6 drift guard is in place** (13 dedicated tests) and the harness (importing the real
+  `identity.py`) would catch prompt↔normalizer drift.
+- But **end-to-end run-to-run reproducibility is NOT achieved on the shipped stack.** The 0.9 / 0.9
+  bar is not met. KI-1 is **not empirically confirmed** — it is an **open issue** (see
+  `KNOWN_ISSUES.md` KI-1, tracked as `claim_gate-ryw`).
+
+### 9.5 Status — what is proven vs. what is open
+
+**Proven (deterministic, unit-level):**
 - the `identity.py` canonical-form invariants, including the R-1 over-collapse minimal-pairs
-  tripwire — the full module suite (**118 tests**) passes;
+  tripwire — the full module suite (**118 tests**) passes; the R-6 drift guard (**13 tests**) is in
+  place;
 - the harness's own correctness — `--selftest` passes;
-- the harness **correctly scores the pre-fix baseline as FAIL** — run over the *pre-fix* evaluation
-  ledgers it reports **mean pairwise Jaccard@claim_id 0.0**, **claim_id stability 0.0**, count
-  **11–77**. That 0.0 / 0.0 is the **"before"** the fix must beat, and it confirms the metric is
-  sensitive to exactly the failure KI-1 describes.
+- the harness **correctly scores the pre-fix baseline as FAIL** (mean pairwise Jaccard@claim_id 0.0,
+  claim_id stability 0.0, count 11–77) — i.e. the metric is sensitive to exactly the failure KI-1
+  describes.
 
-**Remaining (empirical, in-twin — not yet done):** the **N≥5 live harvest run** on one fixed
-changeset, in a Digital Twin (per the never-install-locally rule), to confirm the *post-fix* live
-Jaccard@claim_id and claim_id stability clear the ≥0.9 thresholds while B-1…B-4 stay caught every
-run. Until that run is done, the deterministic half is proven and the harness + baseline are in
-place, but the **live reproducibility clearance is the outstanding acceptance step** — do not read
-the unit-level proof as the empirical confirmation. Tracked in `KNOWN_ISSUES.md` (KI-1).
+**Open (empirical — measured, and NOT met):** the live N=5 in-twin run scored the **shipped config
+at Jaccard 0.0075 / id-stability 0.0395**, far below the 0.9 / 0.9 bar (§9.4). The two-prong fix as
+shipped does not deliver run-to-run reproducibility on an Opus-4.7+/Sonnet-5 stack, primarily
+because the temperature prong is inert there and the prompt prong alone does not force paraphrase +
+granularity convergence. **KI-1 remains open**, tracked as follow-up `claim_gate-ryw`; the path
+forward is a design decision documented in `KNOWN_ISSUES.md` (KI-1).
 
 ## 10. Where the runs live (and what is never committed)
 
