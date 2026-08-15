@@ -54,11 +54,14 @@ jobs:
           uvx ruff@0.16.3 format --check scripts/harvest_stability.py
           uvx ruff@0.16.3 check scripts/harvest_stability.py
 
+      # Run against the .venv the install step populated -- NOT `uv run`, which re-syncs
+      # to the module's own project env (dependencies = []) and drops amplifier_core,
+      # causing ModuleNotFoundError: No module named 'amplifier_core'.
       - name: tool-claim-ledger test suite
         working-directory: modules/tool-claim-ledger
-        run: uv run pytest tests/ -q
+        run: .venv/bin/python -m pytest tests/ -q
 
       - name: Harvest-stability harness self-check
-        # --selftest exercises the metric logic with synthetic sets; it does not need
-        # amplifier_core (the identity import is guarded), so plain python is fine.
-        run: uv run --project modules/tool-claim-ledger python scripts/harvest_stability.py --selftest
+        # --selftest exercises the metric logic with synthetic sets; the identity import
+        # is guarded, but run it through the same populated venv for consistency.
+        run: modules/tool-claim-ledger/.venv/bin/python scripts/harvest_stability.py --selftest
