@@ -1,0 +1,58 @@
+name: CI
+
+# Enforce the bundle's own rigor on every push / PR: the tool-claim-ledger test
+# suite (worst-wins aggregation, file:line evidence enforcement, the R-1 over-collapse
+# tripwire, the R-6 prompt<->normalizer drift guard, the lens-error/limb-4 tests) plus
+# the harvest-stability harness self-check, plus lint.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tool-claim-ledger tests + harness selftest + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create venv and install the module (+ amplifier_core, test deps)
+        working-directory: modules/tool-claim-ledger
+        run: |
+          uv venv
+          # The module's source imports `from amplifier_core import ToolResult`, but does
+          # not declare it (it is provided by the host at runtime). Install it from the
+          # canonical source for CI so the package imports; same source the bundle uses.
+          uv pip install -e . pytest pytest-asyncio \
+            "amplifier-core @ git+https://github.com/microsoft/amplifier-core@main#subdirectory=python"
+
+      - name: Lint (ruff format --check + ruff check)
+        working-directory: modules/tool-claim-ledger
+        run: |
+          uvx ruff format --check amplifier_module_tool_claim_ledger tests
+          uvx ruff check amplifier_module_tool_claim_ledger tests
+
+      - name: Lint the harness script
+        run: |
+          uvx ruff format --check scripts/harvest_stability.py
+          uvx ruff check scripts/harvest_stability.py
+
+      - name: tool-claim-ledger test suite
+        working-directory: modules/tool-claim-ledger
+        run: uv run pytest tests/ -q
+
+      - name: Harvest-stability harness self-check
+        # --selftest exercises the metric logic with synthetic sets; it does not need
+        # amplifier_core (the identity import is guarded), so plain python is fine.
+        run: uv run --project modules/tool-claim-ledger python scripts/harvest_stability.py --selftest
