@@ -23,6 +23,14 @@ model_role: [security-audit, coding, general]
 tools:
   - module: tool-filesystem
     source: git+https://github.com/microsoft/amplifier-module-tool-filesystem@main
+    # F-7 structural write-scoping (KI-4): this dynamic agent writes/executes probe
+    # material. Confine its writes at the TOOL layer to the run sandbox — NOT the source
+    # tree under review. tool-filesystem enforces allowed_write_paths deny-by-default,
+    # traversal-safe (`../` is resolved before the containment check), for both write_file
+    # and edit_file. `.claim-guard` (the ledger run_dir parent) covers every run-id subdir.
+    config:
+      allowed_write_paths:
+        - .claim-guard
   - module: tool-search
     source: git+https://github.com/microsoft/amplifier-module-tool-search@main
   - module: tool-bash

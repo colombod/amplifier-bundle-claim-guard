@@ -37,9 +37,10 @@ tags: ["claim-guard", "probe", "dynamic", "pen-test", "dtu", "phase-2", "staged"
 #          REFUTED (new defect) moves the gate via worst-wins; setting adverse_state_test.exists=true
 #          is what CLEARS the safety limb (limb 2) for a survived+tested claim. An eligible claim left
 #          unprobed keeps adverse_state_test.exists=false and still trips the gate -- deferred != passed.
-#   ARTIFACTS (on disk, scoped -- pen-tester/regression-graduator are instructed to write ONLY under
-#   the run dir below, never the source tree; today this scope is by instruction, not yet a filesystem
-#   allowlist -- see design F-7 / claim_gate-6wq for making it structural):
+#   ARTIFACTS (on disk, STRUCTURALLY scoped -- probe-designer/pen-tester/regression-graduator each mount
+#   tool-filesystem with allowed_write_paths=[".claim-guard"], so a write to the source tree is REFUSED
+#   at the tool layer, deny-by-default and traversal-safe, regardless of instruction (design F-7 closed,
+#   claim_gate-6wq). They can only write under the run dir below:
 #          .claim-guard/<run_id>/probes/         probe specs + executable probes + captured output
 #          .claim-guard/<run_id>/new-defects/    repros for empirically-falsified claims
 #          .claim-guard/<run_id>/proposed-tests/ graduated candidate standing tests (human commits them)
