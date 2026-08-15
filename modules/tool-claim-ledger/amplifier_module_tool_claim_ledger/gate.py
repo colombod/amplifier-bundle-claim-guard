@@ -8,8 +8,15 @@ verdict = BLOCK if any:
   3. any claim aggregate == UNTESTABLE with no waiver (policy-dependent)
 
 verdict = INDETERMINATE (never PASS) if any:
-  4. any claim is PENDING (missing verdict -- the only structural signal this ledger
-     has for "an expected lens result is missing"; see module docstring note below)
+  4. any claim is PENDING (missing verdict), or any lens recorded an error via
+     `record_lens_error` -- each is a distinct structural signal that an expected
+     lens result is missing or broken, and each is reported with its own reason
+     string: "claim-pending:<claim_id>" for a claim with zero recorded verdicts,
+     and "lens-error:<lens>@<claim_id>" for a recorded lens error. A claim can
+     carry both at once (an unverified claim whose only lens attempt crashed), or
+     a lens-error alone even when the claim already has other lenses' verdicts
+     (that claim's aggregate is unaffected by the error -- see module docstring
+     note below).
   5. zero claims harvested
 
 Otherwise verdict = PASS.
@@ -23,12 +30,16 @@ Policy modifiers:
   blocking               -- BLOCK per above; waivers are recorded but never clear a block.
 
 Implementation note on limb 4 ("any lens errored / returned no structured verdict, or
-any claim is PENDING"): this contract defines no operation for a lens to report an
-error directly to the ledger. The only structural signal the ledger can observe is a
-claim with zero recorded verdicts (PENDING). That case is what this implementation
-treats as limb 4. A lens crash that isn't reflected as a missing verdict is outside
-what this tool can detect and is the calling recipe/concierge's responsibility to
-surface (e.g. by halting before calling `gate`).
+any claim is PENDING"): limb 4 is now fully wired. A lens (or the recipe/concierge
+driving it) records a crash/error explicitly via `record_lens_error`, which appends a
+`lens_errors` entry to the claim -- it never creates a verdict and never touches
+`aggregate`/`adverse_state_test`, so a lens error can never be mistaken for a verdict
+by limbs 1-3 or by worst-wins. `compute_gate` below surfaces every recorded lens error
+as its own `lens-error:<lens>@<claim_id>` indeterminate reason, independent of (and in
+addition to) the `claim-pending:<claim_id>` signal for claims with zero verdicts. A
+lens crash is only invisible to the gate if the calling recipe/concierge fails to call
+`record_lens_error` before invoking `gate` -- that remains the caller's responsibility,
+but the ledger itself no longer conflates "not yet verified" with "verification broke".
 """
 
 from __future__ import annotations
@@ -51,6 +62,10 @@ def compute_gate(run_record: dict[str, Any], gate_policy: str) -> dict[str, Any]
     for claim in claims:
         if claim.get("aggregate") == "PENDING":
             indeterminate_reasons.append(f"claim-pending:{claim['claim_id']}")
+        for lens_error in claim.get("lens_errors") or []:
+            indeterminate_reasons.append(
+                f"lens-error:{lens_error['lens']}@{claim['claim_id']}"
+            )
 
     def waived_clears(claim: dict[str, Any]) -> bool:
         return claim.get("waiver") is not None and gate_policy == "blocking-with-waiver"

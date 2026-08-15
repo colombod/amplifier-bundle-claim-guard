@@ -33,8 +33,8 @@ class ClaimLedgerTool:
         return (
             "Deterministic claim ledger for the adversarial claim-verification gate. "
             "Dispatched by `operation`: add_claim, list_claims, record_verdict, "
-            "record_debate, waive, record_probe, defer_claim, graduate_test, "
-            "aggregate, gate, render_matrix. Persists to "
+            "record_lens_error, record_debate, waive, record_probe, defer_claim, "
+            "graduate_test, aggregate, gate, render_matrix. Persists to "
             "<repo>/<run_dir>/<run_id>/ledger.json -- the only write capability in the "
             "gate session. Computes worst-wins aggregation and the gate verdict as pure, "
             "deterministic functions -- never via LLM judgment -- and structurally "
@@ -43,7 +43,9 @@ class ClaimLedgerTool:
             "coverage (record_probe/defer_claim/graduate_test) is honest: only "
             "graduate_test (full criteria met) or record_verdict's adverse_state_test "
             "clear gate limb 2 for a safety claim -- a SURVIVED-but-ungraduated probe "
-            "or a deferred claim still blocks."
+            "or a deferred claim still blocks. record_lens_error makes a crashed lens "
+            "observable to gate limb 4 (distinct from a merely-PENDING claim) without "
+            "ever fabricating a verdict."
         )
 
     @property
@@ -98,7 +100,19 @@ class ClaimLedgerTool:
                 },
                 "lens": {
                     "type": "string",
-                    "description": "record_verdict: the lens recording this verdict.",
+                    "description": (
+                        "record_verdict: the lens recording this verdict. "
+                        "record_lens_error: the lens that errored."
+                    ),
+                },
+                "error": {
+                    "type": "string",
+                    "description": (
+                        "record_lens_error: the error/crash message. Never creates a "
+                        "verdict or touches aggregate/adverse_state_test -- it only "
+                        "surfaces gate limb 4 as a distinct lens-error:<lens>@<claim_id> "
+                        "reason."
+                    ),
                 },
                 "verdict": {
                     "type": "string",

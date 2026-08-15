@@ -145,6 +145,7 @@ def op_add_claim(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
         "probe": None,
         "standing_test": None,
         "waiver": None,
+        "lens_errors": [],
     }
     run_record["claims"].append(claim)
     store.save(run_id, run_record)
@@ -301,6 +302,57 @@ def op_record_verdict(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any
         "lens": lens,
         "verdict": verdict,
         "aggregate": claim["aggregate"],
+    }
+
+
+def op_record_lens_error(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
+    """Record that a lens errored/crashed while attempting to verify a claim.
+
+    Makes limb 4 ("a lens errored / returned no structured verdict") fully
+    observable: without this op, a crashed lens is structurally indistinguishable
+    from a claim that simply hasn't been looked at yet (both read as `PENDING`).
+    Appends a `{lens, error, recorded_at}` entry to `claim.lens_errors`. Never
+    creates a verdict entry, never touches `claim.verdicts`/`aggregate`, and
+    never touches `adverse_state_test` -- a lens error is not a verdict and must
+    never be mistaken for one by `compute_aggregate` or gate limbs 1-3.
+    """
+    run_id = data.get("run_id")
+    claim_id = data.get("claim_id")
+    lens = data.get("lens")
+    error = data.get("error")
+
+    if not run_id or not claim_id or not lens or not error:
+        return {
+            "ok": False,
+            "error": "invalid_input",
+            "message": "run_id, claim_id, lens, and error are required",
+        }
+
+    run_record = store.load(run_id)
+    if run_record is None:
+        return {
+            "ok": False,
+            "error": "run_not_found",
+            "message": f"no run found for run_id={run_id!r}",
+        }
+
+    claim = _find_claim(run_record, claim_id)
+    if claim is None:
+        return {
+            "ok": False,
+            "error": "claim_not_found",
+            "message": f"no claim {claim_id!r} in run {run_id!r}",
+        }
+
+    lens_error = {"lens": lens, "error": error, "recorded_at": _now_iso()}
+    claim.setdefault("lens_errors", []).append(lens_error)
+    store.save(run_id, run_record)
+    return {
+        "ok": True,
+        "claim_id": claim_id,
+        "run_id": run_id,
+        "lens": lens,
+        "lens_error": lens_error,
     }
 
 
@@ -669,6 +721,7 @@ HANDLERS = {
     "add_claim": op_add_claim,
     "list_claims": op_list_claims,
     "record_verdict": op_record_verdict,
+    "record_lens_error": op_record_lens_error,
     "record_debate": op_record_debate,
     "waive": op_waive,
     "record_probe": op_record_probe,

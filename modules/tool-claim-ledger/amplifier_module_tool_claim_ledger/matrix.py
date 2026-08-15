@@ -15,11 +15,11 @@ def render_json(run_record: dict[str, Any]) -> str:
 def render_markdown(run_record: dict[str, Any]) -> str:
     header = (
         "| Claim | Type | Source (inferred?) | Load-bearing code | Verdict | "
-        "Evidence (file:line) | Counter-case | Adverse-state test |"
+        "Evidence (file:line) | Counter-case | Adverse-state test | Lens errors |"
     )
     lines = [
         header,
-        "|---|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for claim in run_record.get("claims", []):
         lines.append(_render_row(claim))
@@ -55,6 +55,17 @@ def _render_row(claim: dict[str, Any]) -> str:
     if adverse_state_test.get("test_ref"):
         adverse_state_cell += f" ({adverse_state_test['test_ref']})"
 
+    # Lens errors are a distinct signal from a missing verdict (gate limb 4,
+    # record_lens_error) -- render every recorded error so a human never has to
+    # infer "lens crashed" from an otherwise-silent PENDING row.
+    lens_errors_cell = (
+        "; ".join(
+            f"{e.get('lens', '?')}: {e.get('error', '')}"
+            for e in claim.get("lens_errors") or []
+        )
+        or "-"
+    )
+
     cells = [
         claim.get("text", ""),
         claim.get("type", ""),
@@ -64,6 +75,7 @@ def _render_row(claim: dict[str, Any]) -> str:
         "; ".join(evidence) or "-",
         "; ".join(counter_cases) or "-",
         adverse_state_cell,
+        lens_errors_cell,
     ]
     return "| " + " | ".join(_escape_pipe(cell) for cell in cells) + " |"
 

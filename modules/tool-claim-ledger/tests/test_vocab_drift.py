@@ -279,8 +279,12 @@ def test_template_property_objects_are_never_fillers() -> None:
 def test_contract_predicate_table_is_internally_consistent() -> None:
     # 7 properties, each with a distinct verb and a distinct object.
     assert len(CONTRACT_PREDICATE) == 7
-    assert len(CONTRACT_TEMPLATE_VERBS) == 7, "controlled verbs must be 1:1 with properties"
-    assert len(CONTRACT_PROPERTY_OBJECTS) == 7, "property objects must be 1:1 with properties"
+    assert len(CONTRACT_TEMPLATE_VERBS) == 7, (
+        "controlled verbs must be 1:1 with properties"
+    )
+    assert len(CONTRACT_PROPERTY_OBJECTS) == 7, (
+        "property objects must be 1:1 with properties"
+    )
     # every mapped type is a real claim type.
     mapped_types = {t for _v, _o, t in CONTRACT_PREDICATE.values()}
     assert mapped_types <= VALID_CLAIM_TYPES, (

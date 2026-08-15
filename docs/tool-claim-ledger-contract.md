@@ -50,7 +50,11 @@ The tool mounts via the standard module `mount()` contract (must call
   "probe": null,                                             // set by record_probe: { designed_by, adverse_state, outcome, evidence, artifacts_path, recorded_at } | null
   "standing_test": null,                                     // set by graduate_test: { path, asserts_property, red_before, green_after, deterministic_runs, recorded_at } | null
 
-  "waiver": null                                             // { "by": "...", "reason": "...", "at": "ISO8601" } | null
+  "waiver": null,                                            // { "by": "...", "reason": "...", "at": "ISO8601" } | null
+
+  "lens_errors": []                                          // appended by record_lens_error: [{ lens, error, recorded_at }, ...]
+                                                               // -- makes gate limb 4 observable; never a verdict, never touches
+                                                               // aggregate/adverse_state_test
 }
 ```
 
@@ -107,6 +111,20 @@ rules** (below). Recomputes the claim's `aggregate` after writing.
 - **in:** `{ run_id, claim_id, lens, verdict, evidence?, counter_case?, adverse_state_test?, round? }`
 - **out:** `{ ok, claim_id, lens, verdict, aggregate }` or an `evidence_required` /
   `ratchet_violation` error (rejected, nothing written).
+
+### `record_lens_error`  *(closes the limb-4 blind spot)*
+Record that a lens errored/crashed while attempting to verify a claim, so a broken
+verification attempt is distinguishable from a claim that simply hasn't been looked
+at yet (both would otherwise read as `PENDING`). Appends `{ lens, error, recorded_at }`
+to `claim.lens_errors`. **Never** creates a verdict, **never** touches
+`verdicts`/`aggregate`, and **never** touches `adverse_state_test` — a lens error is
+not a verdict and must never be counted by worst-wins or gate limbs 1–3. Surfaces in
+`gate` as a distinct `lens-error:<lens>@<claim_id>` indeterminate reason (limb 4) and
+in `render_matrix`'s markdown as a `Lens errors` column entry.
+
+- **in:** `{ run_id, claim_id, lens, error }`
+- **out:** `{ ok, claim_id, run_id, lens, lens_error }` or `invalid_input` /
+  `run_not_found` / `claim_not_found`
 
 ### `record_debate`  *(F-6 — auditable relay)*
 Persist the verbatim payload relayed to a lens in a debate round, so "verbatim relay, no curation"
@@ -186,8 +204,11 @@ Render the claim-verification matrix for humans (markdown) or CI (json).
 
 - **in:** `{ run_id, format: "markdown"|"json" }`
 - **out:** `{ ok, content }` — markdown table with columns
-  `Claim | Type | Source (inferred?) | Load-bearing code | Verdict | Evidence (file:line) | Counter-case | Adverse-state test`,
-  always followed by the **coverage line**. The json form is the raw run record.
+  `Claim | Type | Source (inferred?) | Load-bearing code | Verdict | Evidence (file:line) | Counter-case | Adverse-state test | Lens errors`,
+  always followed by the **coverage line**. The `Lens errors` column renders each
+  `claim.lens_errors` entry as `<lens>: <error>` (or `-` when none), so a human reading
+  the matrix sees a crashed lens directly rather than inferring it from a silent
+  `PENDING` row. The json form is the raw run record (lens errors included as-is).
 
 ---
 
@@ -222,8 +243,12 @@ REFUTED  >  UNTESTABLE  >  CONFIRMED  >  N/A
 
 `verdict = INDETERMINATE` (never PASS) if **any**:
 
-4. any lens errored / returned no structured verdict, or any claim is `PENDING` (an expected lens
-   result is missing) → report the specific `lens@claim_id`;
+4. any claim is `PENDING` (an expected lens result is missing — zero recorded verdicts), reported
+   as `claim-pending:<claim_id>`; **or** any lens recorded an error via `record_lens_error`,
+   reported as its own `lens-error:<lens>@<claim_id>` — a distinct signal from `claim-pending`, so
+   a crashed lens is never conflated with "not yet verified". A claim can carry both reasons at
+   once, or a `lens-error` alone even if the claim already has a verdict from another lens (the
+   error never touches that claim's `aggregate`);
 5. **zero claims harvested** (`coverage.harvested == 0`) → reason `zero-claims-harvested` (the S-8
    rule: an empty claim list is a harvest failure, not a clean bill of health).
 
@@ -303,7 +328,9 @@ Write these before any agent is wired to the tool:
 1. **worst-wins** — every precedence pair, especially CONFIRMED+REFUTED→REFUTED and the
    missing-lens→PENDING case.
 2. **gate limbs** — each of the five independently, plus limb-2-with-CONFIRMED, plus the three
-   policy modifiers, plus zero-claims→INDETERMINATE.
+   policy modifiers, plus zero-claims→INDETERMINATE, plus limb-4's two distinct reason shapes
+   (`claim-pending:<claim_id>` vs `lens-error:<lens>@<claim_id>`, and a `record_lens_error` call
+   that never creates a verdict or moves `aggregate`).
 3. **evidence enforcement** — CONFIRMED/REFUTED without an anchor rejected; REFUTED without a
    counter-case rejected.
 4. **evidence ratchet** — REFUTED→CONFIRMED with no new anchor rejected; with a new anchor accepted.
