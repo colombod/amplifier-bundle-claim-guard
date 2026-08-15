@@ -37,17 +37,23 @@ tags: ["claim-guard", "probe", "dynamic", "pen-test", "dtu", "phase-2", "staged"
 #          REFUTED (new defect) moves the gate via worst-wins; setting adverse_state_test.exists=true
 #          is what CLEARS the safety limb (limb 2) for a survived+tested claim. An eligible claim left
 #          unprobed keeps adverse_state_test.exists=false and still trips the gate -- deferred != passed.
-#   ARTIFACTS (on disk, scoped -- pen-tester/regression-graduator never touch the source tree):
+#   ARTIFACTS (on disk, scoped -- pen-tester/regression-graduator are instructed to write ONLY under
+#   the run dir below, never the source tree; today this scope is by instruction, not yet a filesystem
+#   allowlist -- see design F-7 / claim_gate-6wq for making it structural):
 #          .claim-guard/<run_id>/probes/         probe specs + executable probes + captured output
 #          .claim-guard/<run_id>/new-defects/    repros for empirically-falsified claims
 #          .claim-guard/<run_id>/proposed-tests/ graduated candidate standing tests (human commits them)
 #
-# UNDERSPECIFIED (flagged to the human): the MVP ledger module exposes NO operation to set the `probe`
-# or `standing_test` fields, or to transition probe_eligibility to "deferred". So the matrix coverage
-# counters `probed` and `deferred` (compute_coverage keys off those fields) will read 0 even after a
-# real probe pass. The load-bearing gate signal (adverse_state_test via record_verdict) IS wired and
-# correct; only the coverage bookkeeping is blind. Recommend a follow-up ledger op
-# (record_probe / defer_claim / graduate_test) -- NOT added here, to avoid reshaping the shipped module.
+# COVERAGE BOOKKEEPING (wired): the ledger exposes `record_probe`, `defer_claim`, and `graduate_test`,
+# so the matrix coverage counters `probed` and `deferred` (compute_coverage keys off those fields) are
+# honest -- they reflect real probe/defer/graduation activity, not 0. `record_probe` attaches a probe
+# outcome (FALSIFIED/SURVIVED/UNBUILDABLE) and counts the claim as probed WITHOUT itself moving the
+# aggregate; `defer_claim` marks an eligible claim `deferred` (still trips the gate -- deferred != passed);
+# `graduate_test`, given red-before/green-after/deterministic-3x/asserts-property, records a standing test
+# AND sets adverse_state_test.exists=true (the only path besides record_verdict that clears the safety
+# limb). Exercised end-to-end in KI-2 (claim_gate-zot): a real pass set coverage.probed=3 and graduated a
+# surviving probe's standing test. The load-bearing gate signal (adverse_state_test) is also settable via
+# record_verdict for an empirically-refuted claim.
 # ------------------------------------------------------------------------------
 
 context:
