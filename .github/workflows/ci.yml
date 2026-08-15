@@ -31,14 +31,17 @@ jobs:
         working-directory: modules/tool-claim-ledger
         run: |
           uv venv
-          # The module's source imports `from amplifier_core import ToolResult`, but does
-          # not declare it (it is provided by the host at runtime). Install it from the
-          # canonical source for CI so the package imports; same source the bundle uses.
-          # NOTE: amplifier-core's pyproject.toml is at the repo ROOT (Maturin-built; the
-          # amplifier_core package lives under python/ but is built from root) -- so NO
+          # Install INTO the venv we just created (--python .venv) so later steps that call
+          # .venv/bin/python find everything -- pytest, the module, and amplifier_core.
+          # The module's source imports `from amplifier_core import ToolResult` but does not
+          # declare it (the host provides it at runtime), so install it explicitly from the
+          # canonical source. NOTE: amplifier-core's pyproject.toml is at the repo ROOT
+          # (Maturin-built; the package lives under python/ but is built from root) -- so NO
           # #subdirectory fragment (using one makes uv report "not a Python project").
-          uv pip install -e . pytest pytest-asyncio \
+          uv pip install --python .venv -e . pytest pytest-asyncio \
             "amplifier-core @ git+https://github.com/microsoft/amplifier-core@main"
+          # Fail loudly here (not three steps later) if the venv is not actually complete.
+          .venv/bin/python -c "import pytest, amplifier_core, amplifier_module_tool_claim_ledger; print('venv OK')"
 
       # Ruff is PINNED (uvx ruff@<version>) so CI and local runs use the same linter --
       # an unpinned `uvx ruff` pulls the latest and can fail on newly-enabled rules that
