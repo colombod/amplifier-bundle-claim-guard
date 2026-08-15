@@ -14,12 +14,12 @@ def render_json(run_record: dict[str, Any]) -> str:
 
 def render_markdown(run_record: dict[str, Any]) -> str:
     header = (
-        "| Claim | Type | Source (inferred?) | Load-bearing code | Verdict | "
+        "| Claim | Type | Source (inferred?) | Verdict | "
         "Evidence (file:line) | Counter-case | Adverse-state test | Lens errors |"
     )
     lines = [
         header,
-        "|---|---|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for claim in run_record.get("claims", []):
         lines.append(_render_row(claim))
@@ -44,12 +44,6 @@ def _render_row(claim: dict[str, Any]) -> str:
         if verdict_record.get("counter_case"):
             counter_cases.append(verdict_record["counter_case"])
 
-    # NOTE: "Load-bearing code" has no dedicated field in the MVP schema (see
-    # docs/tool-claim-ledger-contract.md data model). It renders from the same
-    # file:line evidence chokepoint-mapper/boundary-adversary record, duplicating
-    # the Evidence column, since no separate field carries this distinctly.
-    load_bearing_cell = "; ".join(evidence) or "-"
-
     adverse_state_test = claim.get("adverse_state_test") or {}
     adverse_state_cell = "yes" if adverse_state_test.get("exists") else "no"
     if adverse_state_test.get("test_ref"):
@@ -70,7 +64,6 @@ def _render_row(claim: dict[str, Any]) -> str:
         claim.get("text", ""),
         claim.get("type", ""),
         source_cell,
-        load_bearing_cell,
         claim.get("aggregate", "PENDING"),
         "; ".join(evidence) or "-",
         "; ".join(counter_cases) or "-",
