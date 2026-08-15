@@ -340,7 +340,7 @@ python scripts/harvest_stability.py --selftest
 Exit code is **0 iff the active gate (primary concern-type overlap, or the exact bar under
 `--strict-ids`) plus the blocker guardrail are met**, 1 otherwise — suitable for wiring into the
 acceptance methodology. Keep the input `ledger.json` files under the uncommitted
-`.amplifier/evaluation/…` tree (§10); commit only the harness and a results **summary**.
+`.amplifier/evaluation/…` tree (§11); commit only the harness and a results **summary**.
 
 ### 9.4 Live result (measured) — the fix does NOT meet the bar on the shipped stack
 
@@ -463,7 +463,58 @@ documented, not hidden.
 See `KNOWN_ISSUES.md` (KI-1) for the closed-issue summary and the `claim_gate-wd7` (path a, measured) /
 `claim_gate-0ut` (path c, this closure) references.
 
-## 10. Where the runs live (and what is never committed)
+## 10. At-HEAD re-validation (`402293f`) — gate still BLOCKs, B-1…B-4 caught after the harvester rewrite
+
+The original acceptance (§1–§7) ran on the MVP commit. This section records a re-run of the **full
+static gate at current HEAD (`402293f`)** — after the KI-1 harvester canonical-form/grid rewrite
+(`2a97cb7`, §9) — over the **same** Context-Intelligence PR#70 adverse changeset (`c324cbe`) used for
+that original acceptance. **Purpose:** confirm the harvester rewrite did **not** regress the gate's
+core catch. It did not.
+
+**Setup / drive path.** Run in the twin (`claim-guard-dtu`, static `claim-guard` bundle) via the
+`verify-claims` recipe: Gate A approved → static bench fanned out (`correspondence-auditor` +
+`test-correspondence-auditor` over all 54 claims; `chokepoint-mapper` over guard claims;
+`boundary-adversary` over cap claims) → the **deterministic `claim_ledger` gate**. The final verdict
+is that pure computation over the ledger, **not an LLM judgement**.
+
+**Final verdict: `BLOCK`.** Coverage **harvested = 54 / verified = 54**. Aggregates: **CONFIRMED 34,
+REFUTED 15, UNTESTABLE 5**. **20 distinct blocking claims** — 15 via **limb 1** (REFUTED) and 12 via
+**limb 2** (safety claim with no adverse-state test); the two limbs overlap, so the distinct blocking
+set is 20. Independently re-verified on the host from the pulled `ledger.json` (same distribution;
+each blocker carries a real `file:line` anchor).
+
+**The four incident blockers — all caught at HEAD, with the terse canonical-template claim text:**
+
+| # | Blocker | Claim id | Claim text (canonical template) | Verdict | Caught by | Evidence (`file:line`) |
+|---|---|---|---|---|---|---|
+| B-1 | degraded server dups `:Node` | `clm_5a3753ef` | *"upsert_node preserves integrity"* | REFUTED | correspondence + test-corr + chokepoint-mapper (**0/2 paths guarded**) | `neo4j_store.py:993-1003`, `:1476-1502` |
+| B-2 | dup Iteration, "one branch over" | `clm_ae05c019` (+ sibling `clm_96ebe419`) | *"_process_batch repeats safely"* | REFUTED | correspondence + test-corr | `registry.py:391-441`; `iteration.py:97-109` |
+| B-3 | `max_delete` cap inversion | `clm_ee2e653e` | *"max_delete rejects inversion"* | REFUTED | correspondence + test-corr + boundary-adversary (**`-1`**) | `admin.py:648-653`, `:937-945` |
+| B-4 | tests certify liveness, not integrity | 12 safety claims + `clm_9dfab328` / `clm_5d1d3873` | (integrity REFUTALs) | REFUTED + **limb 2** | test-corr (`adverse_state_test.exists=false` on 12 safety claims) | `main.py:362-373`; `session.py:64-87` |
+
+**Regression check: PASS.** The **terser canonical-template** claims produced by the KI-1 rewrite —
+*"max_delete rejects inversion"*, *"upsert_node preserves integrity"*, *"_process_batch repeats
+safely"* — were **still refuted** by the static lenses against the real adverse source, each with a
+`file:line` anchor **and** a counter-case. The harvester rewrite is confirmed **non-regressive to the
+gate's core function**: the coarser, deterministic claim text did not blunt the lenses' catch. This
+strengthens the acceptance record — the four-blocker catch now holds on **current** code, not only the
+MVP commit.
+
+**Caveats (stated honestly).**
+
+- **LSP unavailable in-twin.** `chokepoint-mapper` had no LSP, so it fell back to `grep` + full-file
+  reads (noted in its own evidence) — and **still** enumerated the unguarded reaching paths (e.g.
+  B-1's 0/2). The catch held on the fallback path; a fuller run with LSP would only sharpen the
+  path-enumeration, not change the verdict.
+- **One recipe step-wrapper timed out at 600s**, but its lens verdicts had **already persisted** to the
+  ledger before the wrapper exited; because the final verdict is the deterministic `claim_ledger`
+  gate over the persisted ledger (not an in-flight LLM step), the timeout did not affect it.
+
+**Artifacts** (uncommitted, outside the repo, on the host):
+`.amplifier/evaluation/claim-guard/head-revalidation/` — `ledger.json`, `claim-matrix.md`,
+`verdict.md`.
+
+## 11. Where the runs live (and what is never committed)
 
 Raw evaluation artifacts — worktrees, diffs, ledgers, matrices, and per-run logs — live **outside
 this repo**, under a workspace-local `.amplifier/evaluation/claim-guard/` tree, and are **not
