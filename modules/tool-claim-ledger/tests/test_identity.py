@@ -13,6 +13,7 @@ asserted directly, per the spec:
 from __future__ import annotations
 
 import pytest
+
 from amplifier_module_tool_claim_ledger.identity import (
     compute_claim_id,
     normalize_text,

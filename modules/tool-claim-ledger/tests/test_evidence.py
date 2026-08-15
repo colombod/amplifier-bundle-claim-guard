@@ -5,6 +5,7 @@ rejected; REFUTED without a counter-case rejected. Nothing is written on rejecti
 from __future__ import annotations
 
 import pytest
+
 from amplifier_module_tool_claim_ledger.ops import op_add_claim, op_record_verdict
 from amplifier_module_tool_claim_ledger.store import LedgerStore
 

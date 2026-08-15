@@ -40,16 +40,19 @@ jobs:
           uv pip install -e . pytest pytest-asyncio \
             "amplifier-core @ git+https://github.com/microsoft/amplifier-core@main"
 
+      # Ruff is PINNED (uvx ruff@<version>) so CI and local runs use the same linter --
+      # an unpinned `uvx ruff` pulls the latest and can fail on newly-enabled rules that
+      # local didn't see (this exact drift broke a run: I001 on test imports).
       - name: Lint (ruff format --check + ruff check)
         working-directory: modules/tool-claim-ledger
         run: |
-          uvx ruff format --check amplifier_module_tool_claim_ledger tests
-          uvx ruff check amplifier_module_tool_claim_ledger tests
+          uvx ruff@0.16.3 format --check amplifier_module_tool_claim_ledger tests
+          uvx ruff@0.16.3 check amplifier_module_tool_claim_ledger tests
 
       - name: Lint the harness script
         run: |
-          uvx ruff format --check scripts/harvest_stability.py
-          uvx ruff check scripts/harvest_stability.py
+          uvx ruff@0.16.3 format --check scripts/harvest_stability.py
+          uvx ruff@0.16.3 check scripts/harvest_stability.py
 
       - name: tool-claim-ledger test suite
         working-directory: modules/tool-claim-ledger
