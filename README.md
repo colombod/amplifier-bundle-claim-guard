@@ -103,29 +103,31 @@ auto-composed onto **every** session regardless of which primary bundle (`-B ...
 - the **`claim_ledger`** tool (deterministic aggregation + the gate rule);
 - the **awareness context** telling the session the gate exists and how to drive it.
 
-**Verify it layered in** (any base bundle works — here `amplifier`):
+**Verify it layered in** (any base bundle you actually have works — here `foundation`, which
+ships by default; substitute whichever primary bundle you run):
 
 ```bash
-amplifier run -B amplifier --mode single \
+amplifier run -B foundation --mode single \
   "List any sub-agents named claim-guard:* you can delegate to, and whether the claim_ledger tool is available. Do not read code."
 ```
 
-Real output from this exact command (app-composed onto a plain `-B amplifier` session):
+Real output from this exact command (app-composed onto a plain `-B foundation` session):
 
 ```
-Bundle 'amplifier' prepared successfully
-...
- claim-guard:claim-harvester            Extracts the explicit claims a change makes
- claim-guard:purpose-inquisitor         Infers the implicit claims (what the change exists FOR)
- claim-guard:correspondence-auditor     Mandatory static refutation — prove a claim false against source
- claim-guard:test-correspondence-audi…  Demands a test that goes RED when the claimed property is violated
- claim-guard:chokepoint-mapper          Enumerates every path into a guarded mechanism (LSP incomingCalls)
  claim-guard:boundary-adversary         Finds the input value that inverts a cap/limit/threshold invariant
+ claim-guard:chokepoint-mapper          Enumerates every path into a guarded mechanism (LSP incomingCalls)
+ claim-guard:claim-harvester            Extracts the explicit claims a change makes
+ claim-guard:correspondence-auditor     Mandatory static refutation — prove a claim false against source
+ claim-guard:purpose-inquisitor         Infers the implicit claims (what the change exists FOR)
+ claim-guard:test-correspondence-audi…  Demands a test that goes RED when the claimed property is violated
 
 That's 6 agents — the harvest pair, the static core, and the conditional lenses.
 
-claim_ledger tool: ✅ available.
+claim_ledger tool: ✅ available (add_claim, list_claims, record_verdict, …, gate, render_matrix).
 ```
+
+> You may see `⚠ Could not resolve provider module … — skipping plaintext-secret scan` warnings
+> during `bundle add`; they're harmless (the scan is skipped) and the add still succeeds.
 
 **Driving the gate under the lightweight install:** there is no `/claim-guard` slash-skill or
 `/claim-guard` mode in this install (those live at the bundle root — see the breakdown below). You
