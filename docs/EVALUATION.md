@@ -182,15 +182,15 @@ server.** It demonstrably surfaced the real B-1 violation and its red-before/gre
 **full-fidelity confirmation against a real degraded Neo4j would require a host with nested
 Docker/Incus.** Do not overclaim this as a live-Neo4j probe.
 
-#### 8.2.3 Residuals after the first run (two of three now closed in §8.3)
+#### 8.2.3 Residuals after the first run (all three now closed — §8.3 and §8.4)
 
-The §8.2 run left three residuals; **the graduation capstone and multi-claim fan-out are now done**
-(§8.3), leaving only the live-fidelity residual:
+The §8.2 run left three residuals; **all three are now closed**:
 
 - ~~**More than one claim**~~ — **DONE** (§8.3): `coverage.probed = 3` in ledger `t0run1`.
 - ~~**Graduation of a SURVIVING probe**~~ — **DONE** (§8.3): `graduate_test` ACCEPTED on `clm_c39773b8`.
-- **Full-fidelity live probes** — **still open** (infra-gated): the same loop against a real degraded
-  Neo4j in a nested Docker/Incus twin (needs a container-capable host).
+- ~~**Full-fidelity live probes**~~ — **DONE** (§8.4, `claim_gate-jf6`): the B-1 claim probed against a
+  **real Neo4j 5** with the constraint dropped, driving the verbatim production `_NODE_MERGE_CYPHER` —
+  **FALSIFIED**, reproducing the in-process numbers (a faithful proxy confirmed).
 
 ### 8.3 Graduation capstone + multi-claim (residuals closed)
 
@@ -251,12 +251,66 @@ faithful in-process models of the real mechanisms, **not** live-server probes.
   `probes/clm_c39773b8.spec.md`, `probes/clm_c39773b8_probe.py`,
   `probes/test_max_delete_cap_standing.py`, `probes/clm_103eba07_probe.py`.
 
-#### 8.3.4 What remains (the one residual)
+#### 8.3.4 What remained after §8.3 (now discharged in §8.4)
 
-Only **full-fidelity live probes** remain (infra-gated): the same loop against a real degraded Neo4j
-in a nested Docker/Incus twin, which needs a container-capable host. All three loop stages
-(`probe-designer` → `pen-tester` → `regression-graduator`) and both outcome branches
-(FALSIFIED→REFUTED, SURVIVED→graduated) are now exercised end-to-end. See `KNOWN_ISSUES.md` (KI-2).
+After §8.2–§8.3, all three loop stages (`probe-designer` → `pen-tester` → `regression-graduator`) and
+both outcome branches (FALSIFIED→REFUTED, SURVIVED→graduated) were exercised end-to-end, leaving **one**
+residual: **full-fidelity live probes** — the same mechanism against a *real* Neo4j rather than a
+faithful in-process model. That residual is now **discharged** in §8.4 below. See `KNOWN_ISSUES.md`
+(KI-2, now CLOSED).
+
+### 8.4 Live-Neo4j fidelity probe (residual discharged) — `claim_gate-jf6`
+
+The one residual from §8.3.4 — *"the same loop against a real degraded Neo4j"* — has now been run for
+real. The **B-1 corruption claim** (*"upsert_node preserves integrity"* / *"a degraded server does not
+create a duplicate `:Node`"*) was probed against a **live Neo4j 5 server**, not an in-process model.
+This closes the live-fidelity gap that was the whole point of the residual.
+
+#### 8.4.1 What executed, and the outcome
+
+- **Adverse state — a real degraded Neo4j.** A live **Neo4j 5** (`docker neo4j:5`) with the `:Node`
+  **uniqueness constraint DROPPED**, falling back to the non-unique `idx_node_universal` — i.e. exactly
+  the degraded window `neo4j_store.py:922` creates on a degraded boot. This is the real engine in the
+  real degraded configuration, not a stdlib model of it.
+- **Write path — the VERBATIM production query.** The probe ran the production
+  `_NODE_MERGE_CYPHER` copied verbatim from
+  `context_intelligence_server/neo4j_store.py @c324cbe` (`neo4j_store.py:125`) —
+  `MERGE (n:Node {node_id, workspace})` — driven **25 rounds × 8 concurrent workers** against the
+  **identical** `(node_id, workspace)` key. It observed for the **specific violation** (duplicate
+  `:Node` rows, counted via Cypher `COUNT`), never for liveness.
+- **Outcome — FALSIFIED on the real engine**, with a red-before/green-after control:
+
+  | Adverse-state control | Result | Observation |
+  |---|---|---|
+  | **ADVERSE** — `:Node` uniqueness constraint DROPPED (the degraded window) | **25/25 rounds produced duplicates** | max `COUNT(*)` = **8**, **165 extra duplicate `:Node` rows** |
+  | **CONTROL** — constraint present | **0/25 rounds** | max `COUNT(*)` = **1**, **0 extra rows** |
+
+#### 8.4.2 It reproduces the in-process result — the lighter path was a faithful proxy
+
+The live run's numbers (**adverse max `COUNT(*)` = 8 / control = 1**) **reproduce** the §8.2 in-process
+stdlib model's result (also adverse max 8 / control 1). This is the point of the residual: it confirms
+the design-sanctioned lighter path (§8.2.2) was a **faithful proxy of the real MERGE-without-constraint
+race, not an artifact** of the in-process modelling. The earlier caveat ("do not overclaim the model as
+a live-Neo4j probe") is now retired by an actual live-Neo4j probe that agrees with it.
+
+#### 8.4.3 Ledger effect
+
+Recorded to a ledger via `claim_ledger` (`run_id jf6-live-neo4j`):
+
+- claim `clm_759ae4c0`; `record_probe` `outcome = FALSIFIED`; `pen-tester` verdict **REFUTED** with
+  `file:line` evidence; `aggregate = REFUTED`; `coverage.probed = 1`.
+- **Artifacts** (uncommitted, outside the repo, on the host):
+  `.amplifier/evaluation/claim-guard/jf6-live/` — `live_probe.py`,
+  `.claim-guard/jf6-live-neo4j/ledger.json`.
+
+#### 8.4.4 Honest scope note
+
+This ran the **real production `MERGE` query against a real Neo4j directly** — the identity write path
+the claim actually rests on — rather than booting the full HTTP CI server and POSTing to `/events`. The
+fidelity gap **that mattered** (a real Neo4j `MERGE`-without-constraint race vs an *in-process model* of
+it) is **closed**. A full-HTTP-server-in-the-loop run would be an even heavier variant, but it exercises
+the *same* underlying mechanism the live probe just falsified — so it is a further-hardening option, not
+an open correctness gap.
 
 ## 9. Harvest stability (KI-1)
 

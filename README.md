@@ -48,10 +48,12 @@ it."* See **[Usage](#usage--run-the-gate-on-a-changeset)** for the three inputs 
 > **Phase 2 — the dynamic behavioural pen-testing bench (`probe-claims`)** has been run end-to-end in
 > a Digital Twin across **both** outcome branches: a **FALSIFIED** probe that empirically **REFUTED**
 > a safety claim, and a **SURVIVED** probe **graduated into a standing regression test** that clears
-> gate limb 2 (`docs/EVALUATION.md` §8.2–§8.3). **The one remaining residual is fidelity, not
-> capability:** the adverse states in those runs were *faithful in-process models* of the real
-> mechanisms, not a live degraded Neo4j server, because the twin had no nested containers. A
-> full-fidelity live-server probe still needs a container-capable environment.
+> gate limb 2 (`docs/EVALUATION.md` §8.2–§8.3). **And the fidelity of those runs is now confirmed
+> against a real engine:** the core B-1 corruption claim was re-probed against a **live Neo4j** using
+> the verbatim production `MERGE` query — degraded (no `:Node` uniqueness constraint) produced
+> duplicate `:Node` rows (25/25 rounds, max 8) while the control (constraint present) never exceeded
+> 1, **reproducing** the in-process result and confirming the lighter models were faithful proxies
+> (`docs/EVALUATION.md` §8.4).
 > The two phases are joined only by the shared ledger, so Phase 2 composes onto any completed static
 > run. See the **Two phases** section below and `docs/KNOWN_ISSUES.md` (KI-2).
 
@@ -70,7 +72,7 @@ reads the ledger Phase 1 wrote (by `run_id`) and composes onto **any** completed
 | Verdicts | `CONFIRMED / REFUTED / UNTESTABLE` (+ deterministic gate) | empirical `REFUTED` (new defect) or a **graduated standing test** |
 | Needs | any session (LSP for the chokepoint lens) | a **DTU-capable environment** (Incus/Docker) |
 | Terminates | at Gate B ("proceed to dynamic probing?") | at the final re-gate over the enriched ledger |
-| Status | **proven end-to-end** on a real PR, **re-validated at `HEAD`** (§10) | **run end-to-end in a twin across both outcome branches** (FALSIFIED→REFUTED, SURVIVED→graduated); residual: live-server fidelity (§8.2.2) |
+| Status | **proven end-to-end** on a real PR, **re-validated at `HEAD`** (§10) | **run end-to-end in a twin across both outcome branches** (FALSIFIED→REFUTED, SURVIVED→graduated), **and confirmed against a live Neo4j** (§8.4) |
 
 **The ledger is the seam.** `verify-claims` produces `.claim-guard/<run_id>/ledger.json`;
 `probe-claims` takes that same `run_id`, probes the claims whose *type* requires behavioural proof,
@@ -389,7 +391,7 @@ amplifier-bundle-claim-guard/
 └── docs/
     ├── tool-claim-ledger-contract.md       # authoritative interface contract for the module
     ├── EVALUATION.md                        # acceptance methodology, Phase-2 (DTU) runs, at-HEAD re-validation
-    └── KNOWN_ISSUES.md                      # KI-1 harvest reproducibility, KI-2 Phase-2 live-fidelity residual
+    └── KNOWN_ISSUES.md                      # KI-1 harvest reproducibility (closed at revised bar), KI-2 Phase-2 (closed)
 ```
 
 The **`tool-claim-ledger`** Python module is the trust anchor: worst-wins aggregation, `file:line`
@@ -502,12 +504,14 @@ execute claim-guard:recipes/probe-claims.yaml with:
 >   2 cleared**. The graduated test was independently re-run on the host: **21 passed.** It is a real,
 >   committable pytest.
 >
-> **The one remaining residual is fidelity, not capability.** The twin had **no nested container
-> capability**, so both runs used the design-sanctioned lighter path: self-contained **in-process
-> models** that faithfully reproduce the exact mechanisms (MERGE-without-uniqueness-constraint race;
-> negative-slice cap inversion) and demonstrably surfaced the real B-1/B-3 violations — but they are
-> **models, not a live degraded Neo4j server.** Do not read them as live-server probes. Full-fidelity
-> live probing needs a container-capable environment. See `docs/KNOWN_ISSUES.md` (KI-2).
+> **Fidelity is now confirmed against a real engine.** The B-1/B-3 runs above used the
+> design-sanctioned lighter path (self-contained in-process models of the exact mechanisms). The B-1
+> corruption claim was then **re-probed against a live Neo4j** (`docker neo4j:5`) using the **verbatim
+> production `MERGE` query** — degraded (no `:Node` uniqueness constraint) produced duplicate `:Node`
+> rows in **25/25 rounds (max 8, 165 extra rows)**, while the control (constraint present) never
+> exceeded 1. This **reproduces** the in-process result, confirming the lighter models were faithful
+> proxies (`docs/EVALUATION.md` §8.4). The live run drove the real production query directly rather
+> than the full HTTP server — the same underlying mechanism. See `docs/KNOWN_ISSUES.md` (KI-2).
 
 ## Known issues
 
@@ -519,9 +523,11 @@ See [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md). Two headlines:
   **not** byte-reproducible — the harvesters vary in which claims they select and at what granularity,
   so claim counts differ between runs. **Trust the verdict and the blocker catch; treat the detailed
   matrix as indicative, not diffable.**
-- **KI-2 — Phase-2 live fidelity (open).** The behavioural loop is proven end-to-end across both
-  outcome branches, but against *faithful in-process models* of the adverse states rather than a live
-  degraded server. Full-fidelity live probing needs a container-capable environment.
+- **KI-2 — Phase-2 behavioural pen-testing (closed).** The behavioural loop is proven end-to-end
+  across both outcome branches (FALSIFIED→REFUTED, SURVIVED→graduated), and the B-1 corruption claim
+  was confirmed against a **live Neo4j** running the verbatim production `MERGE` query — the in-process
+  models are faithful proxies (`docs/EVALUATION.md` §8.4). The live run drove the real query directly
+  rather than the full HTTP server; same mechanism.
 
 ## License
 

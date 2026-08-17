@@ -80,15 +80,40 @@ treat the exact detailed claim matrix as indicative, not byte-reproducible (acce
 
 ---
 
-## KI-2 — Phase 2 behavioural loop: core capability demonstrated end-to-end across BOTH outcome branches (in-process adverse-state models); only live-fidelity residual remains
+## KI-2 — Phase 2 behavioural loop: FULLY CLOSED — all three loop stages exercised, both outcome branches proven, and the live-Neo4j fidelity residual discharged
 
-**Status:** the dynamic bench (`probe-designer` → `pen-tester` → `regression-graduator`) and the
-`probe-claims` recipe are **built, committed, DTU-validated, and now exercised end-to-end across both
-Phase-2 outcome branches** in the twin — **FALSIFIED → REFUTED** (first run, `claim_gate-6i1`) and
-**SURVIVED → graduated into a standing test** (this run, `claim_gate-zot`). All three loop stages have
-run, on three probed claims. **Two of the three original residuals are now closed;** only the
-live-Neo4j-fidelity residual remains, and it is **infra-gated** (no nested containers on this host).
-See `EVALUATION.md` §8.2–§8.3 for the full write-up. KI-1 is unaffected.
+**Status:** **CLOSED** (`claim_gate-jf6`). The dynamic bench
+(`probe-designer` → `pen-tester` → `regression-graduator`) and the `probe-claims` recipe are **built,
+committed, DTU-validated, and exercised end-to-end across both Phase-2 outcome branches** in the twin —
+**FALSIFIED → REFUTED** (`claim_gate-6i1`) and **SURVIVED → graduated into a standing test**
+(`claim_gate-zot`) — **and** the last residual, **full-fidelity live-Neo4j probing**, has now been run
+for real: the B-1 corruption claim was probed against a **live Neo4j 5 server** and **FALSIFIED**, with
+numbers that **reproduce** the earlier in-process model (confirming that model was a *faithful proxy*,
+not an artifact). All three original residuals are closed. See `EVALUATION.md` §8.2–§8.4 for the full
+write-up. KI-1 is unaffected.
+
+**The live-Neo4j fidelity confirmation (`claim_gate-jf6`, `run_id jf6-live-neo4j`).** The B-1 claim
+(*"upsert_node preserves integrity"* / *"a degraded server does not create a duplicate `:Node`"*) was
+probed against a **real Neo4j 5** (`docker neo4j:5`) with the `:Node` uniqueness constraint **DROPPED**
+(the non-unique `idx_node_universal` fallback — exactly the degraded window `neo4j_store.py:922`
+creates), driving the **verbatim production query** `_NODE_MERGE_CYPHER`
+(`context_intelligence_server/neo4j_store.py:125 @c324cbe`, `MERGE (n:Node {node_id, workspace})`) at
+**25 rounds × 8 concurrent workers** on one identical key, observing for the **specific violation**
+(duplicate `:Node` rows via Cypher `COUNT`), not liveness. **Result: FALSIFIED on the real engine** —
+ADVERSE **25/25 rounds duplicated, max `COUNT(*)`=8, 165 extra rows**; CONTROL (constraint present)
+**0/25, max=1, 0 extra**. These numbers **reproduce** the §8.2 in-process stdlib model (adverse max 8 /
+control 1), so the design-sanctioned lighter path was a **faithful proxy of the real
+MERGE-without-constraint race**, not a modelling artifact — which was the whole point of keeping the
+residual open. Recorded via `claim_ledger`: claim `clm_759ae4c0`, `record_probe` `outcome=FALSIFIED`,
+`pen-tester` verdict **REFUTED** with `file:line` evidence, `aggregate=REFUTED`, `coverage.probed=1`.
+Artifacts (uncommitted, outside the repo): `.amplifier/evaluation/claim-guard/jf6-live/`.
+
+**Honest scope note (kept).** This ran the **real production `MERGE` query against a real Neo4j
+directly** — the identity write path the claim actually rests on — rather than booting the full HTTP CI
+server and POSTing to `/events`. The fidelity gap that mattered (real Neo4j `MERGE`-without-constraint
+race vs an *in-process model* of it) is **closed**; a full-HTTP-server-in-the-loop run would be a
+heavier variant exercising the *same* underlying mechanism, so it is further hardening, not an open
+correctness gap.
 
 **Both branches proven end-to-end.**
 
@@ -120,26 +145,31 @@ See `EVALUATION.md` §8.2–§8.3 for the full write-up. KI-1 is unaffected.
 `correspondence`/`pen-tester` verdict recorded, no `CONFIRMED` is invented. Graduation clears limb 2;
 it does not manufacture a verdict.
 
-**Residuals — original three, now down to one.**
+**Residuals — original three, all now CLOSED.**
 
 1. ~~**More than one claim**~~ — **DONE.** `coverage.probed=3` in ledger `t0run1`: `clm_2a25c125`
    (FALSIFIED→REFUTED), `clm_c39773b8` (SURVIVED→graduated), `clm_103eba07` (SURVIVED, probe only).
 2. ~~**Graduation of a SURVIVING probe**~~ — **DONE.** `graduate_test` ACCEPTED on `clm_c39773b8`
    (four criteria, `adverse_state_test.exists=true`, host re-run 21 passed).
-3. **Full-fidelity live probes** — **STILL OPEN (infra-gated).** The same loop against a real degraded
-   Neo4j in a nested Docker/Incus twin needs a container-capable host; this host has none. Both runs
-   used the design-sanctioned lighter path — self-contained in-process repros (`uv run --with
-   pydantic`) that **faithfully model** the exact mechanisms (MERGE-without-uniqueness-constraint race;
-   negative-slice cap inversion) — which **demonstrably surface the real B-1/B-3 violations**, but are
-   **in-process models, not live-server probes.** Do not overclaim them as live-Neo4j probes.
+3. ~~**Full-fidelity live probes**~~ — **DONE (`claim_gate-jf6`).** The B-1 corruption claim was
+   probed against a **real Neo4j 5** (`docker neo4j:5`) with the `:Node` uniqueness constraint dropped,
+   driving the **verbatim production `_NODE_MERGE_CYPHER`** (25×8 concurrent) — **FALSIFIED**: ADVERSE
+   25/25 duplicated (max `COUNT(*)`=8, 165 extra rows) vs CONTROL 0/25 (max=1). These numbers
+   **reproduce** the §8.2 in-process model (adverse max 8 / control 1), confirming that lighter path
+   was a **faithful proxy of the real MERGE-without-constraint race**, not an artifact. The earlier
+   "do not overclaim as a live-Neo4j probe" caveat is now retired by an actual live-Neo4j probe. See
+   the live-Neo4j paragraph above and `EVALUATION.md` §8.4.
 
-**Bottom line — substantially closed.** The core Phase-2 capability is **demonstrated end-to-end
-across both outcome branches**: all three loop stages ran, the FALSIFIED and SURVIVED branches both
-went through structurally (REFUTED recorded with `file:line`; a survivor graduated into a committable
-standing test that passes on the host and clears gate limb 2), and multi-claim `coverage.probed=3`.
-The **only** remaining residual is **live-container fidelity** (a real degraded Neo4j behind nested
-Docker/Incus) plus larger budget-scale runs — both follow-ons, honestly not claimed as done.
+**Bottom line — CLOSED.** The Phase-2 capability is **demonstrated end-to-end across both outcome
+branches on real infrastructure**: all three loop stages ran; FALSIFIED→REFUTED (with `file:line`) and
+SURVIVED→graduated (a committable standing test that passes on the host and clears gate limb 2) are
+both proven; multi-claim `coverage.probed=3`; **and** the live-Neo4j fidelity confirmation is done (the
+in-process models were faithful proxies). The only *further-hardening* option — booting the full HTTP
+CI server and POSTing to `/events` rather than driving the real `MERGE` query directly — exercises the
+same underlying mechanism and is **not** an open correctness gap. Larger budget-scale runs remain a
+follow-on, not a residual of this issue.
 
 Raw artifacts (uncommitted, outside the repo):
-`.amplifier/evaluation/claim-guard/ki2-probe/` (first run) and
-`.amplifier/evaluation/claim-guard/ki2-graduation/` (this run).
+`.amplifier/evaluation/claim-guard/ki2-probe/` (first run),
+`.amplifier/evaluation/claim-guard/ki2-graduation/` (graduation run), and
+`.amplifier/evaluation/claim-guard/jf6-live/` (live-Neo4j run).
