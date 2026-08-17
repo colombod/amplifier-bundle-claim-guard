@@ -30,16 +30,30 @@ against its own claims. Distinct from, and complementary to:
 | Happy-path E2E | success paths you thought of | after code, liveness |
 | **claim-guard** | **claim ↔ shipped-code correspondence** | **after build, before merge** |
 
-> **Status: two phases, both built.**
+### When to use this
+
+Run claim-guard as a **pre-merge review gate over a changeset** — a diff or a PR (`base..head`), with
+its commit messages and any linked design doc. **Not per-commit:** it reasons about the claims a whole
+change makes, so a single commit mid-branch is usually the wrong unit.
+
+It is **invoked deliberately**, not automatically: ask the session to run the gate conversationally,
+run the `verify-claims` recipe, or use the `/claim-guard` slash-skill (full install). Wire it as a
+**manual pre-merge check** — the point in your flow where you'd otherwise say *"this looks right, ship
+it."* See **[Usage](#usage--run-the-gate-on-a-changeset)** for the three inputs it needs.
+
+> **Status: two phases, both built and both exercised end-to-end.**
 > **Phase 1 — the static gate (`verify-claims`)** is proven end-to-end against a real regression PR
-> (see *What a real run produces* below).
-> **Phase 2 — the dynamic behavioural pen-testing bench (`probe-claims`)** is built, committed, and
-> **DTU-validated for composition/parse/tool round-trip** (see `docs/EVALUATION.md` §"Phase 2
-> validation (DTU)"). The full behavioural loop — stand up an adverse state in a Digital Twin →
-> attack it → graduate the surviving probe into a standing test — is the intended use and is run
-> **per-changeset inside a Digital Twin**; it has not yet been exercised end-to-end on a real target.
+> (see *What a real run produces* below), and **re-validated at current `HEAD`** after the harvester
+> rewrite (`docs/EVALUATION.md` §10 — still `BLOCK`, all four blockers caught).
+> **Phase 2 — the dynamic behavioural pen-testing bench (`probe-claims`)** has been run end-to-end in
+> a Digital Twin across **both** outcome branches: a **FALSIFIED** probe that empirically **REFUTED**
+> a safety claim, and a **SURVIVED** probe **graduated into a standing regression test** that clears
+> gate limb 2 (`docs/EVALUATION.md` §8.2–§8.3). **The one remaining residual is fidelity, not
+> capability:** the adverse states in those runs were *faithful in-process models* of the real
+> mechanisms, not a live degraded Neo4j server, because the twin had no nested containers. A
+> full-fidelity live-server probe still needs a container-capable environment.
 > The two phases are joined only by the shared ledger, so Phase 2 composes onto any completed static
-> run. See the **Two phases** section below.
+> run. See the **Two phases** section below and `docs/KNOWN_ISSUES.md` (KI-2).
 
 ---
 
@@ -56,7 +70,7 @@ reads the ledger Phase 1 wrote (by `run_id`) and composes onto **any** completed
 | Verdicts | `CONFIRMED / REFUTED / UNTESTABLE` (+ deterministic gate) | empirical `REFUTED` (new defect) or a **graduated standing test** |
 | Needs | any session (LSP for the chokepoint lens) | a **DTU-capable environment** (Incus/Docker) |
 | Terminates | at Gate B ("proceed to dynamic probing?") | at the final re-gate over the enriched ledger |
-| Status | **proven end-to-end** on a real PR | **built + DTU-validated for compose/parse/tool round-trip**; full behavioural loop run per-changeset in a twin |
+| Status | **proven end-to-end** on a real PR, **re-validated at `HEAD`** (§10) | **run end-to-end in a twin across both outcome branches** (FALSIFIED→REFUTED, SURVIVED→graduated); residual: live-server fidelity (§8.2.2) |
 
 **The ledger is the seam.** `verify-claims` produces `.claim-guard/<run_id>/ledger.json`;
 `probe-claims` takes that same `run_id`, probes the claims whose *type* requires behavioural proof,
@@ -149,7 +163,7 @@ amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-gua
 | awareness context (gate exists + how) | ✅ | ✅ |
 | `/claim-guard` **mode** (blocks file edits) | ❌ | ✅ |
 | `/claim-guard` **playbook skill** (one-command concierge) | ❌ | ✅ |
-| 4 discipline skills (harvesting, verify-against-source, …) | ❌ | ✅ |
+| 5 discipline skills (harvesting, verify-against-source, …) | ❌ | ✅ |
 | `verify-claims` **recipe** (staged pipeline + Gate A/B) | ❌ | ✅ |
 | How you drive it | ask the session: *"run the claim-guard gate on this diff"* | `/claim-guard <changeset>`, or run the recipe; `/claim-guard` mode for edit-blocking |
 
@@ -235,6 +249,89 @@ The methodology to reproduce this is in [`docs/EVALUATION.md`](docs/EVALUATION.m
 
 ---
 
+## How to read the output
+
+A run produces two things: a **claim-verification matrix** (one row per claim) and a **gate verdict**.
+Both are computed by the `claim_ledger` tool — deterministic arithmetic over the ledger, never an LLM
+judgement. The full interface is in
+[`docs/tool-claim-ledger-contract.md`](docs/tool-claim-ledger-contract.md).
+
+### The gate verdict
+
+| Verdict | Meaning |
+|---|---|
+| **BLOCK** | at least one gate limb fired — do not merge |
+| **INDETERMINATE** | the run is **incomplete or broken**, so no pass can be claimed |
+| **PASS** | every claim verified, no limb fired |
+
+**The gate never passes on doubt.** An incomplete run is `INDETERMINATE`, never `PASS` — a gap must
+never read as a green light. The limbs, at a glance:
+
+- **limb 1** — any claim aggregates to **REFUTED** → `BLOCK`
+- **limb 2** — any **safety** claim has **no adverse-state test** (`adverse_state_test.exists=false`)
+  → `BLOCK`, *independently of limb 1* (so a CONFIRMED safety claim with no adverse-state test still
+  blocks — the B-4 case). A **deferred** probe does not clear this: deferred ≠ passed.
+- **limb 3** — any claim aggregates to **UNTESTABLE** with no recorded human waiver → `BLOCK`
+- **limb 4** — any claim is **PENDING**, or any lens recorded an error → `INDETERMINATE`
+  (reasons `claim-pending:<claim_id>` and `lens-error:<lens>@<claim_id>`)
+- **limb 5** — **zero claims harvested** → `INDETERMINATE` (reason `zero-claims-harvested`) — an empty
+  claim list is a harvest failure, not a clean bill of health
+
+`gate_policy` modulates limbs 1–3 only: `advisory` reports instead of blocking; `blocking-with-waiver`
+(default) lets a recorded waiver clear a claim; `blocking` records waivers but they clear nothing.
+**`INDETERMINATE` is never downgraded by any policy.**
+
+### Per-claim verdict states
+
+Each claim's **aggregate** is computed across its lens verdicts by strict **worst-wins** precedence —
+`REFUTED > UNTESTABLE > CONFIRMED > N/A`. One lens's `CONFIRMED` can never raise another's `REFUTED`.
+
+| State | Means |
+|---|---|
+| **CONFIRMED** | every lens that ruled found the shipped code does what the claim says — each with a `file:line` anchor |
+| **REFUTED** | at least one lens proved the claim false, with a `file:line` anchor **and** a counter-case (the input/state/sequence that breaks it) |
+| **UNTESTABLE** | a lens could not decide the claim from the available evidence — needs a human call, not a silent pass |
+| **PENDING** | **no lens verdict was recorded at all** — the claim was never actually ruled on. Not a pass; feeds limb 4 |
+| **N/A** | a lens legitimately abstained (the claim is outside its remit). An abstention never lowers an aggregate |
+
+### Lens errors (a distinct signal from PENDING)
+
+If a lens crashes or returns no structured verdict, that is recorded explicitly via `record_lens_error`
+and surfaces as its own `lens-error:<lens>@<claim_id>` reason (limb 4) plus a `Lens errors` column
+entry. This exists so **a broken verification is never mistaken for "not looked at yet"** — both would
+otherwise read as a silent `PENDING`. A lens error never touches the claim's `aggregate`, and a claim
+can carry a lens error even when another lens has already ruled.
+
+### The claim-verification matrix
+
+`render_matrix` emits eight columns, always followed by a coverage line
+(`harvested / verified / probed / deferred / waived`):
+
+| Column | Contents |
+|---|---|
+| **Claim** | the claim text as harvested |
+| **Type** | `safety` · `quantitative` · `temporal` · `concurrency` · `correspondence` · `coverage` — this drives probe eligibility |
+| **Source (inferred?)** | where the claim came from, and whether it was *inferred* (implicit) rather than stated |
+| **Verdict** | the worst-wins aggregate (table above) |
+| **Evidence (file:line)** | the anchors every CONFIRMED/REFUTED must carry — structurally enforced |
+| **Counter-case** | for a REFUTED claim, the input/state/sequence that breaks it |
+| **Adverse-state test** | `yes`/`no` — whether a test exists that goes **red on violation** (this is what limb 2 reads) |
+| **Lens errors** | `<lens>: <error>` per recorded error, or `-` |
+
+### One nuance worth knowing: a graduated survivor stays `PENDING`
+
+If a Phase-2 probe **survives** and is **graduated** into a standing regression test, you will see the
+claim with `Adverse-state test = yes` but **`Verdict = PENDING`**. That looks wrong. It isn't.
+
+`graduate_test` sets `adverse_state_test.exists = true` — clearing gate limb 2 — but it **deliberately
+never fabricates a lens verdict**. A standing test proves the adverse-state property holds; it does not
+constitute a lens having *ruled on the claim*. The tool refuses to manufacture a `CONFIRMED` nobody
+produced. So a good Phase-2 result reads as *"limb 2 cleared, verdict still owed"* — to move that claim
+to `CONFIRMED`, a lens must record an actual verdict. (Worked example: `clm_c39773b8` in
+`docs/EVALUATION.md` §8.3.2.)
+
+---
+
 ## The bench (MVP)
 
 **Harvesters** (cold, independent, UNIONed — inference can only *add* claims, never remove one)
@@ -289,8 +386,8 @@ amplifier-bundle-claim-guard/
 ├── modules/tool-claim-ledger/             # the deterministic ledger + gate (the trust anchor; static + Phase-2 ops)
 └── docs/
     ├── tool-claim-ledger-contract.md       # authoritative interface contract for the module
-    ├── EVALUATION.md                        # acceptance methodology + Phase-2 (DTU) validation
-    └── KNOWN_ISSUES.md                      # known limitations (harvester non-determinism)
+    ├── EVALUATION.md                        # acceptance methodology, Phase-2 (DTU) runs, at-HEAD re-validation
+    └── KNOWN_ISSUES.md                      # KI-1 harvest reproducibility, KI-2 Phase-2 live-fidelity residual
 ```
 
 The **`tool-claim-ledger`** Python module is the trust anchor: worst-wins aggregation, `file:line`
@@ -357,9 +454,9 @@ code coupling. Three Phase-2 ops extend the tool:
 | `defer_claim` | marks a probe-eligible claim `deferred` (rejects non-eligible claims) | never touches `adverse_state_test` — **deferred ≠ passed**; a deferred safety claim still blocks |
 | `graduate_test` | records a graduated standing test | structurally rejects unless all four graduation criteria hold; on success sets `standing_test` **and** `adverse_state_test.exists = true` |
 
-The full op surface is: `add_claim`, `list_claims`, `record_verdict`, `record_debate`, `waive`,
-**`record_probe`**, **`defer_claim`**, **`graduate_test`**, `aggregate`, `gate`, `render_matrix`.
-See `docs/tool-claim-ledger-contract.md`.
+The full op surface is 12 ops: `add_claim`, `list_claims`, `record_verdict`, `record_lens_error`,
+`record_debate`, `waive`, **`record_probe`**, **`defer_claim`**, **`graduate_test`**, `aggregate`,
+`gate`, `render_matrix`. See `docs/tool-claim-ledger-contract.md`.
 
 ### Install / compose Phase 2
 
@@ -388,18 +485,41 @@ execute claim-guard:recipes/probe-claims.yaml with:
   max_rounds:   3
 ```
 
-> **Honesty note.** The static gate is **proven end-to-end** against a real PR (above). The dynamic
-> bench is **built, committed (`593fab1`), and DTU-validated for composition, recipe parse, and
-> `claim_ledger` round-trip** (see `docs/EVALUATION.md` §"Phase 2 validation (DTU)"). Running the full
-> behavioural loop — stand up an adverse state → attack → graduate a standing test — is the intended
-> per-changeset use inside a twin and has **not yet been exercised end-to-end on a real target**. See
-> `docs/KNOWN_ISSUES.md` for current limitations.
+> **Honesty note — what is proven, and the one residual.** The full behavioural loop **has been run
+> end-to-end in a twin, across both outcome branches** (`docs/EVALUATION.md` §8.2–§8.3):
+>
+> - **FALSIFIED → REFUTED.** `probe-claims` consumed an existing `verify-claims` ledger via the
+>   `run_id` seam and drove `probe-designer` → `pen-tester` on the B-1 safety claim
+>   (`clm_2a25c125`, *"a degraded server does not create a duplicate `Node`"*). The probe **made the
+>   forbidden violation happen** — adverse 25/25 rounds duplicated, control 0/25 — and `REFUTED` was
+>   recorded with `file:line` evidence. Correctly **not** graduated: a falsified probe is a new-defect
+>   finding, not a survivor.
+> - **SURVIVED → graduated.** The `max_delete` cap claim (`clm_c39773b8`, B-3) survived its probe and
+>   `graduate_test` **ACCEPTED** it on all four criteria (red-before, green-after, deterministic ×3,
+>   asserts-the-property), setting `standing_test` and `adverse_state_test.exists = true` — **gate limb
+>   2 cleared**. The graduated test was independently re-run on the host: **21 passed.** It is a real,
+>   committable pytest.
+>
+> **The one remaining residual is fidelity, not capability.** The twin had **no nested container
+> capability**, so both runs used the design-sanctioned lighter path: self-contained **in-process
+> models** that faithfully reproduce the exact mechanisms (MERGE-without-uniqueness-constraint race;
+> negative-slice cap inversion) and demonstrably surfaced the real B-1/B-3 violations — but they are
+> **models, not a live degraded Neo4j server.** Do not read them as live-server probes. Full-fidelity
+> live probing needs a container-capable environment. See `docs/KNOWN_ISSUES.md` (KI-2).
 
 ## Known issues
 
-See [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md). The headline: the **gate verdict and the
-four-blocker catch are stable run-to-run**, but the **detailed claim matrix is not yet reproducible**
-— the two harvester agents are non-deterministic, so claim counts vary between runs.
+See [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md). Two headlines:
+
+- **KI-1 — harvest reproducibility (closed at a revised bar, with an accepted residual).** The **gate
+  verdict and the four-blocker catch are stable run-to-run**, and the **categories of concern** that
+  surface are reproducible (measured concern-type overlap 0.93). But the **exact** claim matrix is
+  **not** byte-reproducible — the harvesters vary in which claims they select and at what granularity,
+  so claim counts differ between runs. **Trust the verdict and the blocker catch; treat the detailed
+  matrix as indicative, not diffable.**
+- **KI-2 — Phase-2 live fidelity (open).** The behavioural loop is proven end-to-end across both
+  outcome branches, but against *faithful in-process models* of the adverse states rather than a live
+  degraded server. Full-fidelity live probing needs a container-capable environment.
 
 ## License
 

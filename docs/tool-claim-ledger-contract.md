@@ -204,7 +204,7 @@ Render the claim-verification matrix for humans (markdown) or CI (json).
 
 - **in:** `{ run_id, format: "markdown"|"json" }`
 - **out:** `{ ok, content }` — markdown table with columns
-  `Claim | Type | Source (inferred?) | Load-bearing code | Verdict | Evidence (file:line) | Counter-case | Adverse-state test | Lens errors`,
+  `Claim | Type | Source (inferred?) | Verdict | Evidence (file:line) | Counter-case | Adverse-state test | Lens errors`,
   always followed by the **coverage line**. The `Lens errors` column renders each
   `claim.lens_errors` entry as `<lens>: <error>` (or `-` when none), so a human reading
   the matrix sees a crashed lens directly rather than inferring it from a silent
