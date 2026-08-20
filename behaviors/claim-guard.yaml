@@ -57,6 +57,21 @@ agents:
     - claim-guard:chokepoint-mapper
     - claim-guard:boundary-adversary
 
+# Register the /claim-guard mode wherever this behavior is layered. A registered mode is INERT until
+# explicitly activated: hooks-mode sets session_state["active_mode"] = None at mount and the
+# tool-policy cascade only runs when a mode is set. Layering this behavior therefore CANNOT block a
+# host bundle's write_file -- the mode is available (via /claim-guard or /modes) but never auto-active.
+#
+# search_paths is EXPLICIT (@claim-guard-behavior:modes) rather than relying on hooks-mode's lazy
+# base_path namespace scan: the namespace is THIS file's bundle.name, so it resolves identically
+# whether the behavior is layered standalone via --app or composed by bundle.md / with-probing.yaml.
+hooks:
+  - module: hooks-mode
+    source: git+https://github.com/microsoft/amplifier-bundle-modes@main#subdirectory=modules/hooks-mode
+    config:
+      search_paths:
+        - "@claim-guard-behavior:modes"
+
 # Thin awareness pointer only (~250 tokens). All heavy knowledge lives in agents and skills.
 context:
   include:

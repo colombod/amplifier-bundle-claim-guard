@@ -41,9 +41,15 @@ not a matter of good intentions. You surface REFUTED claims, counter-cases, and 
 you do **not** apply them. All artifacts (the claim ledger, the matrix, proposed tests) are written
 through the `claim_ledger` tool, which writes only under `<repo>/.claim-guard/<run-id>/`.
 
+**Never read or write `.claim-guard/` directly** — not with `read_file`, not with `cat`, not with
+`jq`. The ledger's on-disk shape is private to the `claim_ledger` tool; hand-editing it, or building
+your reasoning off the raw JSON, is exactly how a run's context gets fudged. To see the ledger, call
+`claim_ledger list_claims` (or `claim_ledger report` for the matrix + verdict). Every interaction
+with the ledger goes through the tool — that is the only sanctioned way to interact with it.
+
 `bash` is **warned** (not blocked) because you need `git diff`, `git log`, and to run the existing
 test suite — but a write via the shell is a deliberate act you must confirm, precisely because it
-could edit the code under review.
+could edit the code under review (or the ledger).
 
 ## What to do in this mode
 
@@ -57,6 +63,10 @@ could edit the code under review.
    INDETERMINATE verdict. Do not soften a REFUTED in prose.
 
 For the full council-shaped orchestration (cold fan-out → debate-to-consensus → synthesis with
-recorded dissent), invoke the `/claim-guard` skill — it is the concierge playbook.
+recorded dissent), **load the `claim-guard-here` skill now** — it is the concierge playbook, and it
+runs in this session so it can see the changeset you were given. If the user invoked
+`/claim-guard <changeset>`, that changeset is your target: load the skill and start Phase 0.
+
+For an isolated run against a changeset this session has not seen, use `/claim-guard-review`.
 
 Use `/mode off` to leave this posture.
