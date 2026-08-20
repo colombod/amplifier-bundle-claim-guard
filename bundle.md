@@ -33,13 +33,18 @@ message is a **hypothesis to disprove**, not a fact.
 
 ## Running the gate
 
-- **Interactive / concierge run:** invoke the `/claim-guard` skill. It is the concierge
-  playbook — it drives the cold fan-out, the debate-to-consensus loop, and the synthesis with
-  recorded dissent, exactly like `/council` but for the implementation layer.
-- **Pipeline run:** execute `claim-guard:recipes/verify-claims.yaml` with the changeset inputs.
-  The recipe guarantees the neutral changeset digest, the cold/independent claim harvest, the
-  roster manifest, and the deterministic gate computation. Debate and synthesis remain
-  concierge-owned per the `/claim-guard` playbook.
+- **Agent path:** load the **`claim-guard-here`** skill. It is the concierge playbook — it drives
+  the cold fan-out, the debate-to-consensus loop, and the synthesis with recorded dissent, exactly
+  like `/council` but for the implementation layer. Load it **before** touching `claim_ledger`;
+  driving the ledger op-by-op without it produces an unattributed, ungated result.
+- **Human path:** `/claim-guard <changeset>` — the mode. It activates the claim-guard posture
+  (`write_file`/`edit_file` blocked) and starts the playbook on that changeset.
+- **Isolated run:** `/claim-guard-review <changeset>` — the same gate in a forked session, for a
+  changeset this session has not seen.
+- **Pipeline run (optional):** execute `claim-guard:recipes/verify-claims.yaml` with the changeset
+  inputs. The recipe guarantees the neutral changeset digest, the cold/independent claim harvest,
+  the roster manifest, and the deterministic gate computation. Debate and synthesis remain
+  concierge-owned per the `claim-guard-here` playbook.
 
 ## The gate rule (computed by `tool-claim-ledger`, never by an LLM)
 

@@ -10,7 +10,7 @@ if the ledger can be argued out of a verdict, so can the gate.
 | | |
 |---|---|
 | Module dir | `modules/tool-claim-ledger/` |
-| Bundle wiring | declared in `behaviors/claim-guard.yaml` → `tools:` with `source: ./modules/tool-claim-ledger` |
+| Bundle wiring | declared in `behaviors/claim-guard.yaml` → `tools:` with a **pinned git URL** source (`…@main#subdirectory=modules/tool-claim-ledger`), not a relative path — a relative source re-bases onto the declaring file's directory and breaks under registry / `--app` composition |
 | Tool name | **`claim_ledger`** — a single tool dispatched by an `operation` parameter (one name to allow-list in the `/claim-guard` mode) |
 | Persistence | JSON at `<repo>/<run_dir>/<run_id>/ledger.json` (`run_dir` from config, default `.claim-guard`) |
 | Config | `run_dir: str` (default `.claim-guard`) |
@@ -90,6 +90,17 @@ The tool mounts via the standard module `mount()` contract (must call
 All operations take `run_id` (string). If `run_id` is empty on the first `add_claim`, the tool
 derives and returns one (see Stable Claim IDs). Every operation returns
 `{ "ok": true, ... }` or `{ "ok": false, "error": "<code>", "message": "<human>" }`.
+
+**15 ops total.** Twelve primitives (below), plus three **concierge ops** — `start_run`,
+`add_claims`, `report` — which are thin compositions of the primitives. The concierge ops exist so
+an orchestrating agent never invents a `run_id`, never fires one `add_claim` per harvested claim,
+and never stitches the verdict together by hand. They add **no** new validation, aggregation, or
+gate semantics: each reuses the underlying handler's validation verbatim.
+
+> **Storage is private to this tool.** The on-disk JSON under `<repo>/<run_dir>/<run_id>/` is an
+> implementation detail. Callers read the ledger via `list_claims` / `report`, never by opening the
+> files. Hand-editing the JSON, or reasoning off the raw file, defeats every structural guarantee
+> below (evidence enforcement, the ratchet, worst-wins).
 
 ### `add_claim`
 Add a claim (idempotent on stable `claim_id`; a re-add updates `source`/`basis` but never resets
@@ -209,6 +220,61 @@ Render the claim-verification matrix for humans (markdown) or CI (json).
   `claim.lens_errors` entry as `<lens>: <error>` (or `-` when none), so a human reading
   the matrix sees a crashed lens directly rather than inferring it from a silent
   `PENDING` row. The json form is the raw run record (lens errors included as-is).
+
+---
+
+## Concierge ops (thin compositions — no new semantics)
+
+These three exist to make the concierge's interaction with the ledger **mechanical and
+discoverable**: the run_id comes from the ledger rather than from the agent, a harvested batch
+lands in one call, and the verdict always ships with the matrix that explains it. Each reuses an
+existing handler's validation verbatim — none adds a rule, and none can be used to bypass one.
+
+### `start_run`
+Explicitly create a new run and return its `run_id`, without adding a claim first. Reuses the exact
+run-creation path `add_claim` takes when it auto-creates a run on an empty `run_id`
+(`new_run_id()` + `_new_run_record()` + `save()`), and `validate_gate_policy` for rejecting an
+unknown policy.
+
+- **in:** `{ gate_policy? }` — defaults to `blocking-with-waiver`
+- **out:** `{ ok, run_id, gate_policy }`
+- **rejects:** `invalid_input` — `unknown gate_policy: <value>` (nothing written)
+
+The agent never fabricates or guesses a `run_id`; it asks for one.
+
+### `add_claims`
+Bulk-add a harvested batch, reusing `add_claim`'s validation (and its stable-`claim_id`
+idempotency) for **each** element.
+
+- **in:** `{ run_id?, claims: [ { text, type, source, inferred, basis?, quote? }, … ] }`
+  — `claims` must be a **non-empty array**
+- **out:** `{ ok, run_id, results: [ { claim_id, was_new } ], added, updated, errors: [ { index, error, message } ] }`
+- **rejects (whole call):** `invalid_input` — `claims must be a non-empty array`
+
+Two behaviours worth stating explicitly:
+
+- **`run_id` is threaded from the first successful add.** Pass `run_id: ""` (or omit it) and the
+  first element creates the run via `add_claim`'s own auto-create path; every later element reuses
+  that same run_id. One call bulk-adds into a fresh run.
+- **A malformed element does NOT abort the batch.** It is recorded in `errors` (with its `index`)
+  and the remaining elements still land. One bad element among N valid ones must never drop the
+  rest — a silently truncated harvest would read downstream as a smaller, cleaner changeset.
+
+### `report`
+One-call gate verdict **plus** the rendered matrix. A thin composition of `gate` + `render_matrix`
+— it reuses both handlers' validation (missing/unknown `run_id`, invalid `gate_policy`, invalid
+`format`) verbatim and reimplements none of it. Equivalent to calling `gate` then `render_matrix`
+separately, in one round trip.
+
+- **in:** `{ run_id, gate_policy?, format? }` — `gate_policy` defaults to the run's stored policy;
+  `format` defaults to `"markdown"`
+- **out:** `{ ok, run_id, verdict, blocking_claims, indeterminate_reasons, coverage, matrix }`
+  — the first five fields are `gate`'s output verbatim; `matrix` is `render_matrix`'s `content`
+- **rejects:** returns the underlying `gate` error unchanged if gating fails, else the underlying
+  `render_matrix` error unchanged. The matrix is never rendered for a run that failed to gate.
+
+Because `report` computes both from the same ledger read, a verdict can never be presented
+alongside a matrix from a different state.
 
 ---
 
