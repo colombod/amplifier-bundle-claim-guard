@@ -52,7 +52,7 @@ Call **`claim_ledger start_run`** and capture the returned `run_id`. **NEVER inv
 
 ## Phase 1: Resolve the Bench
 
-The **bench (MVP) is two harvesters + four verdict lenses.**
+The **bench (MVP) is two harvesters + five verdict lenses.**
 
 **Harvesters (Stage 1 — cold, independent, UNIONed never intersected):**
 - **claim-harvester** — "What does this change explicitly SAY it does?"
@@ -68,6 +68,10 @@ reason — exclusion is auditable, not a silent drop):**
   names a guard/gate/prevention mechanism (type `safety`, or `correspondence` naming a mechanism).
 - **boundary-adversary** — "What input value inverts this invariant?" Include when any claim names a
   cap/limit/threshold/bound/validated parameter (type `quantitative`, or a cap claim).
+- **empirical-verifier** — "Can I reproduce this claim by executing it?" Include when the changeset
+  has a runnable/testable artifact (executable code, or runnable tests). This is the bench's only
+  lens that **runs** rather than reads — it produces first-hand evidence (a real command and its real
+  output). Record include/exclude with a reason, as with every conditional lens.
 
 You may run the `verify-claims` recipe to execute Phases 2–4 mechanically, or drive them yourself
 with `delegate`. Either way, Phases 5–6 (debate + synthesis) are yours.
@@ -105,6 +109,14 @@ point. Launch them concurrently.
 
 Each verdict is exactly one of `{CONFIRMED, REFUTED, UNTESTABLE, N/A}`, and the ledger **rejects any
 CONFIRMED/REFUTED without a `file:line` anchor.**
+
+**empirical-verifier is the exception in kind, not in rule.** It records the same verdict vocabulary
+and the same `file:line` anchor as everyone else, but its evidence additionally carries **EMPIRICAL
+evidence — the exact command it ran and the output it observed.** It uses a DTU **only if one is
+available** in the session and a lighter check cannot settle the claim; otherwise it runs the shipped
+test, a minimal repro, or the real call directly. If it could not actually execute anything, it must
+record **N/A** ("could not execute: …") — never a CONFIRMED. A read-only opinion from this lens is
+not an empirical verdict.
 
 **Fail loud.** If a lens errors or returns no structured verdict, report it prominently
 ("chokepoint-mapper did not return on claims 3, 7 — results incomplete"). No synthetic stand-in, no

@@ -45,9 +45,14 @@ tools:
       skills:
         - "git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=skills"
 
-# The static bench (MVP). Two harvesters + two mandatory-core lenses + two conditional lenses.
+# The static bench (MVP). Two harvesters + two mandatory-core lenses + three conditional lenses.
 # Phase-2 dynamic agents (probe-designer, pen-tester, regression-graduator) are intentionally
 # NOT included here.
+#
+# empirical-verifier is the council's EMPIRICAL member: every other lens reads the source, it
+# EXECUTES (runs the shipped test / a minimal repro / the real call; a DTU only if one happens to be
+# available). Conditional — rostered when the changeset has a runnable/testable artifact. It is a
+# lighter first-hand check than the Phase-2 pen-tester, which builds full adverse states.
 agents:
   include:
     - claim-guard:claim-harvester
@@ -56,6 +61,7 @@ agents:
     - claim-guard:test-correspondence-auditor
     - claim-guard:chokepoint-mapper
     - claim-guard:boundary-adversary
+    - claim-guard:empirical-verifier
 
 # Register the /claim-guard mode wherever this behavior is layered. A registered mode is INERT until
 # explicitly activated: hooks-mode sets session_state["active_mode"] = None at mount and the
