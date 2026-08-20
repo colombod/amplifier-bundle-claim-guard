@@ -89,51 +89,54 @@ below for the bench, the eligibility rule, graduation, and the Phase-2 install.
 ## Install
 
 claim-guard is meant to ride **on top of** the bundle you already run, as a review gate available
-in every session — not as a standalone root bundle you switch to. The behavior is
-**self-sufficient**: layering it via `--app` gives you the whole gate. **This is the install.**
+in every session. You install it once with `--app` and it auto-composes onto every session,
+whatever primary bundle (`-B …`) you use — you never switch bundles to get the gate.
 
-### ✅ The install: layer the behavior with `--app`
+### ✅ The install: layer claim-guard with `--app`
 
 ```bash
-amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=behaviors/claim-guard.yaml" --app
+amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main" --app
 ```
 
-This registers the **behavior** (`claim-guard-behavior`) as an app bundle, so it is
-auto-composed onto **every** session regardless of which primary bundle (`-B ...`) you use. You get:
+> **Point `--app` at the bundle root** (the URL above), **not** at
+> `#subdirectory=behaviors/claim-guard.yaml`. An app bundle must be a *root* bundle; a bare
+> behavior file added with `--app` registers an empty stub and composes nothing. The root bundle
+> *is* the thin app-layer wrapper — its whole job is to deliver the claim-guard behavior (plus the
+> `modes` / `recipes` / `lsp` infra the mode, skills, and LSP tracing ride on) onto your session.
 
-- the seven adversarial **lens agents** (`claim-guard:*`), delegatable from any session;
-- the **`claim_ledger`** tool (deterministic aggregation + the gate rule);
-- the **skills** — `claim-guard-here` (the agent-path concierge playbook), `/claim-guard-review`
-  (the isolated forked run), and the discipline skills — registered via `tool-skills`;
-- the **`/claim-guard` mode** (blocks `write_file`/`edit_file`), registered via `hooks-mode`;
+Layering it composes onto **every** session, regardless of which primary bundle you run. You get:
+
+- the seven adversarial **lens agents** (`claim-guard:*`, incl. `empirical-verifier`), delegatable
+  from any session;
+- the **`claim_ledger`** tool (deterministic aggregation + the gate rule — 15 operations);
+- the **skills** — `claim-guard-here` (the agent-path concierge playbook, model-invocable),
+  `/claim-guard-review` (the isolated forked run), and the discipline skills;
+- the **`/claim-guard` mode** (blocks `write_file`/`edit_file`);
 - the **awareness context** telling the session the gate exists and how to drive it.
 
-> **A registered mode is inert until activated.** Layering this behavior cannot block your host
+> **A registered mode is inert until activated.** Layering claim-guard cannot block your host
 > bundle's `write_file` — `/claim-guard` is *available*, never auto-active.
 
-**Verify it layered in** (any base bundle you actually have works — here `foundation`, which
-ships by default; substitute whichever primary bundle you run):
+**Verify it layered in** (any base bundle you actually have works — here `foundation`, which ships
+by default; substitute whichever primary bundle you run):
 
 ```bash
 amplifier run -B foundation --mode single \
-  "List any sub-agents named claim-guard:* you can delegate to, and whether the claim_ledger tool is available. Do not read code."
+  "List sub-agents named claim-guard:*, whether the claim_ledger tool is available and its op count, and any /claim-guard slash commands. Do not read code."
 ```
 
-Recorded output from this exact command (app-composed onto a plain `-B foundation` session).
-**This run predates the `empirical-verifier` lens**, which is now the seventh agent in the
-behavior's roster — the shape of the check is what this shows, not the current count:
+Real output from this exact command, app-composed onto a plain `-B foundation` session
+(captured 2026-08-20 against `main`):
 
 ```
- claim-guard:boundary-adversary         Finds the input value that inverts a cap/limit/threshold invariant
- claim-guard:chokepoint-mapper          Enumerates every path into a guarded mechanism (LSP incomingCalls)
- claim-guard:claim-harvester            Extracts the explicit claims a change makes
- claim-guard:correspondence-auditor     Mandatory static refutation — prove a claim false against source
- claim-guard:purpose-inquisitor         Infers the implicit claims (what the change exists FOR)
- claim-guard:test-correspondence-audi…  Demands a test that goes RED when the claimed property is violated
-
-That's 6 agents — the harvest pair, the static core, and the conditional lenses.
-
-claim_ledger tool: ✅ available (add_claim, list_claims, record_verdict, …, gate, render_matrix).
+(1) 7 claim-guard:* agents — boundary-adversary, chokepoint-mapper, claim-harvester,
+    correspondence-auditor, empirical-verifier, purpose-inquisitor, test-correspondence-auditor
+(2) claim_ledger tool: available — 15 operations (add_claim, add_claims, aggregate, defer_claim,
+    gate, graduate_test, list_claims, record_debate, record_lens_error, record_probe,
+    record_verdict, render_matrix, report, start_run, waive)
+(3) /claim-guard (the mode) + /claim-guard-review (isolated forked run) registered;
+    claim-guard-here is model-invoked via load_skill, not a slash command
+(4) mode claim-guard available, NOT activated (inert — your host's write_file is unaffected)
 ```
 
 > You may see `⚠ Could not resolve provider module … — skipping plaintext-secret scan` warnings
@@ -157,37 +160,35 @@ Whichever entry point you use, the agent path is the same: **load the `claim-gua
 then let it drive. Driving `claim_ledger` op-by-op without the playbook produces an unattributed,
 ungated result.
 
-### Optional: the root bundle (adds the recipe pipeline)
+### Using it as a primary bundle instead
 
-Everything above ships in the behavior. The **root bundle** additionally composes the `recipes`,
-`modes`, and `lsp` bundles, which is what the staged **`verify-claims` recipe** (Gate A / Gate B
-human approvals) and the `chokepoint-mapper`'s LSP tracing need:
+The same root bundle can also be run directly as your primary bundle for a dedicated review
+session (instead of, or in addition to, the `--app` layering above):
 
 ```bash
-# Use it as a primary bundle for a review session:
-amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main"
 amplifier run -B claim-guard "/claim-guard git diff main...HEAD"
 ```
 
-### What each install gives you
+Either way you get the identical capability — the `--app` layer just makes it available in *every*
+session without switching.
 
-| Capability | `--app` **behavior** (the install) | Root **bundle** (`-B claim-guard`) |
-|---|:---:|:---:|
-| 7 lens agents (`claim-guard:*`, incl. `empirical-verifier`) | ✅ | ✅ |
-| `claim_ledger` tool (deterministic gate, 15 ops) | ✅ | ✅ |
-| awareness context (gate exists + how) | ✅ | ✅ |
-| `/claim-guard` **mode** (blocks file edits) | ✅ | ✅ |
-| `claim-guard-here` **skill** (the agent-path playbook) | ✅ | ✅ |
-| `/claim-guard-review` (isolated forked run) | ✅ | ✅ |
-| 5 discipline skills (harvesting, verify-against-source, …) | ✅ | ✅ |
-| `verify-claims` **recipe** (staged pipeline + Gate A/B) | ❌ (needs the `recipes` bundle) | ✅ |
-| LSP-backed `chokepoint-mapper` tracing | only if your host bundle ships LSP | ✅ |
-| How you drive it | `/claim-guard <changeset>`, `/claim-guard-review`, or conversationally | the same, plus the staged recipe |
+### What the install gives you
 
-**Why the behavior is the install:** a gate you carry into every session — whatever primary bundle
-you're running — is exactly the "team-wide behavior" `--app` exists for. You keep your normal
-workflow and gain the full gate on demand. Reach for the root bundle when you want the staged
-recipe with its human approval gates, or LSP tracing your host bundle doesn't already provide.
+| Capability | Delivered by the `--app` (or `-B claim-guard`) install |
+|---|:---:|
+| 7 lens agents (`claim-guard:*`, incl. `empirical-verifier`) | ✅ |
+| `claim_ledger` tool (deterministic gate, 15 ops) | ✅ |
+| awareness context (gate exists + how) | ✅ |
+| `/claim-guard` **mode** (blocks file edits, inert until activated) | ✅ |
+| `claim-guard-here` **skill** (the agent-path playbook, model-invocable) | ✅ |
+| `/claim-guard-review` (isolated forked run) | ✅ |
+| 5 discipline skills (harvesting, verify-against-source, …) | ✅ |
+| `verify-claims` **recipe** (staged pipeline + Gate A/B) | ✅ (root composes the `recipes` bundle) |
+| LSP-backed `chokepoint-mapper` tracing | ✅ (root composes the `lsp` bundle) |
+
+**Why `--app`:** a gate you carry into every session — whatever primary bundle you're running — is
+exactly the "team-wide behavior" `--app` exists for. You keep your normal workflow and gain the
+full gate on demand, without ever switching your primary bundle.
 
 ---
 
