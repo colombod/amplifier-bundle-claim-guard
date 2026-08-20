@@ -34,18 +34,24 @@ class ClaimLedgerTool:
             "Deterministic claim ledger for the adversarial claim-verification gate. "
             "Dispatched by `operation`: add_claim, list_claims, record_verdict, "
             "record_lens_error, record_debate, waive, record_probe, defer_claim, "
-            "graduate_test, aggregate, gate, render_matrix. Persists to "
-            "<repo>/<run_dir>/<run_id>/ledger.json -- the only write capability in the "
-            "gate session. Computes worst-wins aggregation and the gate verdict as pure, "
-            "deterministic functions -- never via LLM judgment -- and structurally "
-            "enforces file:line evidence anchors and an evidence ratchet so a REFUTED "
-            "verdict cannot be talked away without new evidence. Phase-2 probing "
-            "coverage (record_probe/defer_claim/graduate_test) is honest: only "
-            "graduate_test (full criteria met) or record_verdict's adverse_state_test "
-            "clear gate limb 2 for a safety claim -- a SURVIVED-but-ungraduated probe "
-            "or a deferred claim still blocks. record_lens_error makes a crashed lens "
-            "observable to gate limb 4 (distinct from a merely-PENDING claim) without "
-            "ever fabricating a verdict."
+            "graduate_test, aggregate, gate, render_matrix, start_run, add_claims, "
+            "report. Persists to <repo>/<run_dir>/<run_id>/ledger.json -- the only "
+            "write capability in the gate session. Computes worst-wins aggregation "
+            "and the gate verdict as pure, deterministic functions -- never via LLM "
+            "judgment -- and structurally enforces file:line evidence anchors and an "
+            "evidence ratchet so a REFUTED verdict cannot be talked away without new "
+            "evidence. Phase-2 probing coverage (record_probe/defer_claim/"
+            "graduate_test) is honest: only graduate_test (full criteria met) or "
+            "record_verdict's adverse_state_test clear gate limb 2 for a safety "
+            "claim -- a SURVIVED-but-ungraduated probe or a deferred claim still "
+            "blocks. record_lens_error makes a crashed lens observable to gate limb 4 "
+            "(distinct from a merely-PENDING claim) without ever fabricating a "
+            "verdict. start_run/add_claims/report are thin conveniences over the "
+            "same handlers -- they never bypass validation: start_run explicitly "
+            "creates a run without adding a claim first; add_claims bulk-adds a "
+            "`claims` array in one call (isolating per-element failures in `errors` "
+            "without dropping the rest of the batch); report returns gate + "
+            "render_matrix's combined output in one round trip."
         )
 
     @property
@@ -178,7 +184,37 @@ class ClaimLedgerTool:
                 "format": {
                     "type": "string",
                     "enum": ["markdown", "json"],
-                    "description": "render_matrix: output format.",
+                    "description": "render_matrix/report: output format.",
+                },
+                "claims": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string"},
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "correspondence",
+                                    "safety",
+                                    "quantitative",
+                                    "temporal",
+                                    "concurrency",
+                                    "coverage",
+                                ],
+                            },
+                            "source": {"type": "string"},
+                            "inferred": {"type": "boolean"},
+                            "basis": {"type": "string"},
+                            "quote": {"type": "string"},
+                        },
+                        "required": ["text", "type", "source"],
+                    },
+                    "description": (
+                        "add_claims: batch of claims to add, each shaped like "
+                        "add_claim's own fields. A malformed element is isolated in "
+                        "the result's `errors` array and does not abort the batch."
+                    ),
                 },
             },
             "required": ["operation"],

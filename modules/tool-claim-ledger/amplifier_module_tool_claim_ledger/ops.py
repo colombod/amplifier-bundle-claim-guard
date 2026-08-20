@@ -717,6 +717,126 @@ def op_render_matrix(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]
     return {"ok": True, "content": content}
 
 
+def op_start_run(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
+    """Explicitly create a new run, without adding a claim first.
+
+    Thin composition: reuses the exact run-creation path `op_add_claim` takes
+    when it auto-creates a run on an empty `run_id` (`store.new_run_id()` +
+    `_new_run_record()` + `store.save()`), and `validate_gate_policy` for
+    rejecting an unknown policy. Lets a caller (or `op_add_claims`) obtain a
+    run_id up front without adding a claim first.
+    """
+    gate_policy = data.get("gate_policy") or "blocking-with-waiver"
+    if not validate_gate_policy(gate_policy):
+        return {
+            "ok": False,
+            "error": "invalid_input",
+            "message": f"unknown gate_policy: {gate_policy!r}",
+        }
+
+    run_id = store.new_run_id()
+    run_record = _new_run_record(run_id, gate_policy)
+    store.save(run_id, run_record)
+    return {"ok": True, "run_id": run_id, "gate_policy": gate_policy}
+
+
+def op_add_claims(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
+    """Bulk-add claims, reusing `op_add_claim`'s validation for each element.
+
+    Threads `run_id` from the first successful add so a caller can bulk-add
+    into a fresh run in one call (pass `run_id=""` or omit it): the first
+    element creates the run via `op_add_claim`'s own auto-create path, and
+    every subsequent element reuses that run_id. A malformed element is
+    recorded in `errors` and does NOT abort the batch -- one bad element
+    among N valid ones must not drop the rest.
+    """
+    claims = data.get("claims")
+    if not isinstance(claims, list) or not claims:
+        return {
+            "ok": False,
+            "error": "invalid_input",
+            "message": "claims must be a non-empty array",
+        }
+
+    run_id = data.get("run_id") or ""
+    results: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    added = 0
+    updated = 0
+
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            errors.append(
+                {
+                    "index": index,
+                    "error": "invalid_input",
+                    "message": "each claim must be an object",
+                }
+            )
+            continue
+
+        result = op_add_claim(store, {**claim, "run_id": run_id})
+        if not result["ok"]:
+            errors.append(
+                {
+                    "index": index,
+                    "error": result.get("error"),
+                    "message": result.get("message"),
+                }
+            )
+            continue
+
+        run_id = result["run_id"]
+        results.append({"claim_id": result["claim_id"], "was_new": result["was_new"]})
+        if result["was_new"]:
+            added += 1
+        else:
+            updated += 1
+
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "results": results,
+        "added": added,
+        "updated": updated,
+        "errors": errors,
+    }
+
+
+def op_report(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
+    """One-call gate verdict + rendered matrix.
+
+    Thin composition of `op_gate` + `op_render_matrix` -- reuses both handlers'
+    validation (missing/unknown run_id, invalid gate_policy, invalid format)
+    verbatim rather than reimplementing any of it. Equivalent to calling `gate`
+    then `render_matrix` separately, in one round trip.
+    """
+    run_id = data.get("run_id")
+    gate_policy = data.get("gate_policy")
+    fmt = data.get("format", "markdown")
+
+    gate_data: dict[str, Any] = {"run_id": run_id}
+    if gate_policy is not None:
+        gate_data["gate_policy"] = gate_policy
+    gate_result = op_gate(store, gate_data)
+    if not gate_result["ok"]:
+        return gate_result
+
+    matrix_result = op_render_matrix(store, {"run_id": run_id, "format": fmt})
+    if not matrix_result["ok"]:
+        return matrix_result
+
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "verdict": gate_result["verdict"],
+        "blocking_claims": gate_result["blocking_claims"],
+        "indeterminate_reasons": gate_result["indeterminate_reasons"],
+        "coverage": gate_result["coverage"],
+        "matrix": matrix_result["content"],
+    }
+
+
 HANDLERS = {
     "add_claim": op_add_claim,
     "list_claims": op_list_claims,
@@ -730,6 +850,9 @@ HANDLERS = {
     "aggregate": op_aggregate,
     "gate": op_gate,
     "render_matrix": op_render_matrix,
+    "start_run": op_start_run,
+    "add_claims": op_add_claims,
+    "report": op_report,
 }
 
 
