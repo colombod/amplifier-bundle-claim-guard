@@ -1,6 +1,6 @@
 ---
-name: claim-guard
-description: "Run the adversarial claim-verification gate on a changeset — harvest the claims it makes, fan a bench of adversarial lenses out cold to refute each against the shipped source, debate to consensus, and synthesize an auditable claim-verification matrix with recorded dissent. Blocks merge on any REFUTED claim or any safety claim with no adverse-state test."
+name: claim-guard-review
+description: "Isolated (forked) run — run the adversarial claim-verification gate on a changeset you name explicitly. Harvests the claims it makes, fans a bench of adversarial lenses out cold to refute each against the shipped source, debates to consensus, and synthesizes an auditable claim-verification matrix with recorded dissent. Blocks merge on any REFUTED claim or any safety claim with no adverse-state test."
 context: fork
 disable-model-invocation: true
 user-invocable: true
@@ -30,7 +30,7 @@ $ARGUMENTS
 
 ## Guard Check — Run This First
 
-`/claim-guard` runs **isolated (forked)** — it cannot see this conversation. It reviews an
+`/claim-guard-review` runs **isolated (forked)** — it cannot see this conversation. It reviews an
 **explicit external changeset** you name. Triage `$ARGUMENTS`:
 
 - **Empty?** Output the Usage block and stop.
@@ -41,7 +41,7 @@ $ARGUMENTS
   design/spec docs)? Proceed to Phase 1.
 
 ```
-Usage: /claim-guard <changeset>
+Usage: /claim-guard-review <changeset>
 
 A changeset can be:
   - a diff             (e.g. git diff main...HEAD)
@@ -50,11 +50,15 @@ A changeset can be:
 Optionally, feed a prior /council verdict — every addressed FAIL/CONCERN becomes a claim to verify.
 
 Examples:
-  /claim-guard git diff main...HEAD  (commits + linked spec at ./docs/design/deploy-safe-boot.md)
-  /claim-guard PR #70 in ~/dev/context-intelligence
+  /claim-guard-review git diff main...HEAD  (commits + linked spec at ./docs/design/deploy-safe-boot.md)
+  /claim-guard-review PR #70 in ~/dev/context-intelligence
 ```
 
-Before starting, **activate the `/claim-guard` mode** and pick a `run_id` for the ledger.
+Before starting, **activate the `/claim-guard` mode**, then **start the run**: call
+`claim_ledger start_run` and capture the returned `run_id`. **Never invent a `run_id`.**
+
+**Never read or write `.claim-guard/` directly** — inspect the ledger only via
+`claim_ledger list_claims`. The on-disk form is private to the tool.
 
 ---
 
@@ -87,9 +91,12 @@ with `delegate`. Either way, Phases 5–6 (debate + synthesis) are yours.
 1. **Neutral digest.** `delegate` a `foundation:explorer` pass to map the changeset factually —
    files/functions changed, entry points, where linked docs live. **It maps, it does not opine.**
 2. **Harvest cold.** `delegate` **claim-harvester** and **purpose-inquisitor** in parallel,
-   `context_depth="none"`. Neither sees the other's output. Each records claims to the ledger
-   (`claim_ledger add_claim`). Fold a prior council verdict in via purpose-inquisitor if supplied.
-3. **UNION.** Read the ledger back (`claim_ledger list_claims`). The union is authoritative —
+   `context_depth="none"`. Neither sees the other's output. Each returns its harvested claims. Fold a
+   prior council verdict in via purpose-inquisitor if supplied.
+3. **Record in one call.** Record **all** harvested claims from both harvesters with a **single**
+   `claim_ledger add_claims` bulk call. **Never loop raw `add_claim` by hand** — hand-driving the
+   ledger op-by-op is how a run gets fudged.
+4. **UNION.** Read the ledger back (`claim_ledger list_claims`). The union is authoritative —
    inference only adds. Never intersect.
 
 **Gate A (do this with the human):** present the consolidated claim ledger and ask them to add
@@ -117,10 +124,10 @@ Emit the **roster manifest**: who ran, who was excluded and why.
 
 ## Phase 4: Aggregate (deterministic — the tool decides)
 
-Call `claim_ledger gate`. It computes **worst-wins** aggregation
-(`REFUTED > UNTESTABLE > CONFIRMED > N/A`) and the BLOCK/PASS/INDETERMINATE verdict. **Do not
-re-weigh or soften the result in prose.** Render the matrix with `claim_ledger render_matrix` and
-print the coverage line verbatim. This is the divergence from a design council: the gate verdict is
+Call **`claim_ledger report`** — one call returns the gate verdict *and* the rendered matrix
+together. It computes **worst-wins** aggregation (`REFUTED > UNTESTABLE > CONFIRMED > N/A`) and the
+BLOCK/PASS/INDETERMINATE verdict. **Do not re-weigh or soften the result in prose.** Print the matrix
+and the coverage line verbatim. This is the divergence from a design council: the gate verdict is
 data + a mechanical rule, not an LLM's judgment — so an LLM never assembles it.
 
 ---

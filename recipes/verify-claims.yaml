@@ -19,7 +19,7 @@ tags: ["claim-guard", "verification", "gate", "adversarial", "review", "staged",
 #   (f) the DETERMINISTIC aggregation + gate computation (claim_ledger `aggregate`/`gate` ops).
 #
 # It does NOT encode the debate-to-consensus loop or the human-facing synthesis. Those are
-# CONCIERGE-OWNED per skills/claim-guard (the concierge playbook) — mirroring amplifier-bundle-
+# CONCIERGE-OWNED per skills/claim-guard-review (the concierge playbook) — mirroring amplifier-bundle-
 # council's split. The recipe is flat and inspectable on purpose; the iterative judgment lives with
 # the concierge + the human.
 #
@@ -315,7 +315,7 @@ stages:
           stand-in, no silent drop.
 
           Then STOP. Do NOT run debate rounds and do NOT synthesize — that is the concierge's job per
-          skills/claim-guard (the concierge playbook).
+          skills/claim-guard-review (the concierge playbook).
         output: "manifest"
 
   # === Stage 4: AGGREGATE + GATE — deterministic (the tool decides) ==========
@@ -375,5 +375,5 @@ stages:
 #   final_summary     — the terminal static verdict for the human
 #
 # The debate-to-consensus loop and the attributed, dissent-preserving synthesis are CONCIERGE-OWNED
-# (skills/claim-guard). Run this recipe for the guaranteed cold fan-out + deterministic gate; invoke
+# (skills/claim-guard-review). Run this recipe for the guaranteed cold fan-out + deterministic gate; invoke
 # /claim-guard for the full council-shaped orchestration on top.

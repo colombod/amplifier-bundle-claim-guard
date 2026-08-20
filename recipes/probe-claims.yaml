@@ -23,7 +23,7 @@ tags: ["claim-guard", "probe", "dynamic", "pen-test", "dtu", "phase-2", "staged"
 #   (e) the DETERMINISTIC final aggregation + gate + matrix (claim_ledger gate/render_matrix).
 #
 # It does NOT encode the debate-to-consensus loop or the human-facing synthesis -- those remain
-# CONCIERGE-OWNED per skills/claim-guard, exactly as in verify-claims. The recipe is flat.
+# CONCIERGE-OWNED per skills/claim-guard-review, exactly as in verify-claims. The recipe is flat.
 #
 # COLD / INDEPENDENT: the recipes engine spawns a fresh sub-session per step; no probe-design or
 # pen-test prompt interpolates a sibling agent's output. Shared substrate is the ledger + the probe
@@ -205,5 +205,5 @@ stages:
 #   final_gate_result  -- the recomputed deterministic matrix + gate verdict + artifact index
 #
 # The debate-to-consensus loop and the attributed, dissent-preserving synthesis remain CONCIERGE-OWNED
-# (skills/claim-guard). Run this recipe for the guaranteed cold probe fan-out + DTU pen-test +
+# (skills/claim-guard-review). Run this recipe for the guaranteed cold probe fan-out + DTU pen-test +
 # deterministic re-gate; invoke /claim-guard for the full council-shaped orchestration on top.
