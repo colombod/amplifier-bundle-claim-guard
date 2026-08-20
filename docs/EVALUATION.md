@@ -581,3 +581,55 @@ ledgers/matrices, absolute machine paths, and any provider/model or credential d
 
 To reproduce, recreate the `BASE / ADVERSE_HEAD / FIXED_HEAD` reconstruction on your own subject
 PR per §3–§6 and keep your runs in an untracked location.
+
+## 12. Behavior-only `--app` usability (DX2) — real-host end-to-end, not just "composes"
+
+The DX2 rework (smart-ops, skills-under-`--app`, mode registration, empirical lens) was proven on a
+**real host app-CLI** (not a DTU — DTUs rewrite git URLs and masked earlier host-resolution bugs),
+against `main`, captured 2026-08-20. This is the honest usability proof the incident (session
+`9bb3579c`, where `/claim-guard` had never registered and the agent hand-drove raw ledger ops)
+demanded.
+
+### 12.1 Install-target diagnosis (a real bug this found)
+
+A bare behavior file added with `--app`
+(`…#subdirectory=behaviors/claim-guard.yaml --app`) registers an **empty registry stub**
+(`bundles.claim-guard-behavior` had `keys: []`, no `app_bundle`/`is_root`) and **composes nothing**
+— verified: a `-B foundation` session saw 0 claim-guard agents, no tool, no `/claim-guard*`. App
+bundles must be *root* bundles. Fix (commit on `main`): the install targets the **root** bundle,
+`amplifier bundle add "git+…/amplifier-bundle-claim-guard@main" --app`. The README carried the wrong
+target — exactly the claim↔reality drift this gate exists to catch, in its own docs.
+
+### 12.2 Composition under root `--app` onto `-B foundation` (verified live)
+
+- **7** `claim-guard:*` agents, including the new `empirical-verifier`.
+- `claim_ledger` tool available with **15 operations** (incl. the DX2 smart-ops `start_run`,
+  `add_claims`, `report`).
+- `/claim-guard` (the **mode**) + `/claim-guard-review` (isolated fork skill) registered;
+  `claim-guard-here` is model-invocable via `load_skill` (the agent path — the incident fix).
+- Mode `claim-guard` available but **NOT active** (`active_mode: null`).
+
+### 12.3 No host hijack (verified live)
+
+With claim-guard `--app`-layered but the mode not activated, a `-B foundation` session was asked to
+`write_file hijack-check.txt` — the write **succeeded** (14 bytes). A registered mode is inert until
+activated; layering claim-guard onto any host bundle never blocks the host's editing.
+
+### 12.4 End-to-end gate drive (verified live)
+
+A `-B foundation` session was given a plain "review this changeset before merge" over a tiny adverse
+sample (`process_refund` whose commit claims *"rejects negative amounts and caps at max_refund"*,
+but `process_refund(-50, 100)` returns `-50`). Unprompted on mechanics, the agent:
+
+- **loaded the `claim-guard-here` skill** (model-invocable playbook — the incident fix), then
+- drove the ledger through the **smart-ops** (`start_run` → `add_claims` bulk → `report`), never
+  hand-driving raw `add_claim` op-by-op, and
+- ran two independent lenses: **correspondence-auditor** (static — "no negative-value guard exists")
+  and **empirical-verifier**, which **actually executed the code**
+  (`python3 -c "…process_refund(-50,100)"` → observed `-50`) to refute the claim **first-hand**.
+
+Deterministic result: **BLOCK** — `"rejects negative amounts"` **REFUTED** (static + empirical,
+independently) with a `file:line` anchor and the counter-case `process_refund(-50,100) → -50`;
+`"caps at max_refund"` CONFIRMED. The proposed one-line fix was surfaced, **not applied**
+(read-only honored). The empirical lens delivered the kind of evidence a source read cannot: a real
+execution observation, recorded to the ledger alongside the static verdict.
