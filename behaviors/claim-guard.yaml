@@ -22,6 +22,29 @@ tools:
     config:
       run_dir: .claim-guard        # ledger + artifacts live under <repo>/.claim-guard/<run-id>/
 
+  # Concierge reachability under --app. Registers this repo's skills/ dir so BOTH concierge
+  # entry points (claim-guard-here, claim-guard-review) exist wherever this behavior is layered,
+  # with NO root bundle required.
+  #
+  # The skills source is a PINNED GIT URL, deliberately NOT "@claim-guard-behavior:skills".
+  # VERIFIED (tool-skills _resolve_skill_sources + app_cli main.py CommandProcessor.__init__):
+  #   - git-URL sources resolve EAGERLY at mount -> present in tool.skills BEFORE the CLI snapshots
+  #     SKILL_SHORTCUTS -> the /claim-guard-* slash commands register.
+  #   - "@namespace:path" sources resolve DEFERRED at first provider:request -> they arrive AFTER
+  #     that snapshot -> load_skill works but the slash command silently does NOT register
+  #     (this is exactly the incident: skills present to load_skill but the command missing).
+  # Same pattern the council bundle uses for /council.
+  #
+  # MERGE SAFETY (foundation deep_merge): tools merge by module id and list-valued config
+  # CONCATENATES with dedup, and app bundles compose LAST -> this APPENDS to whatever skills the
+  # host bundle and the CLI already configured; it never replaces them. Do NOT set `visibility:`
+  # here -- the host (or the CLI's skills.yaml) owns that policy; overriding it would hijack the host.
+  - module: tool-skills
+    source: git+https://github.com/microsoft/amplifier-bundle-skills@main#subdirectory=modules/tool-skills
+    config:
+      skills:
+        - "git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=skills"
+
 # The static bench (MVP). Two harvesters + two mandatory-core lenses + two conditional lenses.
 # Phase-2 dynamic agents (probe-designer, pen-tester, regression-graduator) are intentionally
 # NOT included here.
