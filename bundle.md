@@ -12,9 +12,6 @@ bundle:
 
 includes:
   - bundle: git+https://github.com/microsoft/amplifier-foundation@main
-  - bundle: git+https://github.com/microsoft/amplifier-bundle-modes@main
-  - bundle: git+https://github.com/microsoft/amplifier-bundle-recipes@main
-  - bundle: git+https://github.com/microsoft/amplifier-bundle-lsp@main
   - bundle: claim-guard:behaviors/claim-guard
 ---
 
