@@ -3,8 +3,22 @@ bundle:
   version: 0.1.0
   description: >
     The claim-guard capability: the adversarial static-bench agents, the claim-ledger tool
-    (deterministic aggregation + gate), and the thin awareness context. Compose this behavior
-    onto any bundle to add the implementation-layer claim-verification gate.
+    (deterministic aggregation + gate), the /claim-guard mode, and the thin awareness context.
+    Compose this behavior onto any bundle to add the implementation-layer claim-verification gate.
+
+# The infra this capability rides on -- declared as BEHAVIORS, never root bundles. A behavior is
+# what you layer via `--app`; layering a *root* would re-drag foundation into a session that already
+# has it. These make the behavior SELF-SUFFICIENT so `bundle add <behaviors/claim-guard.yaml> --app`
+# composes the whole gate on its own (no root bundle required):
+#   - modes  -> hooks-mode + tool-mode  (so /claim-guard is activatable, not just registered)
+#   - recipes -> tool-recipes           (so the optional verify-claims pipeline path exists)
+#   - lsp-core -> the LSP tool          (chokepoint-mapper traces call paths via incomingCalls)
+# The root bundle.md is a thin wrapper (foundation + this behavior) for the standalone
+# `bundle use claim-guard` path only.
+includes:
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-modes@main#subdirectory=behaviors/modes.yaml
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-recipes@main#subdirectory=behaviors/recipes.yaml
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-lsp@main#subdirectory=behaviors/lsp-core.yaml
 
 # The deterministic trust anchor: the claim ledger, worst-wins aggregation, evidence
 # enforcement, and the gate rule. Shipped as the local module modules/tool-claim-ledger.
@@ -63,20 +77,22 @@ agents:
     - claim-guard:boundary-adversary
     - claim-guard:empirical-verifier
 
-# Register the /claim-guard mode wherever this behavior is layered. A registered mode is INERT until
-# explicitly activated: hooks-mode sets session_state["active_mode"] = None at mount and the
-# tool-policy cascade only runs when a mode is set. Layering this behavior therefore CANNOT block a
-# host bundle's write_file -- the mode is available (via /claim-guard or /modes) but never auto-active.
+# Point hooks-mode at THIS repo's modes/ dir so /claim-guard is discoverable wherever the behavior is
+# layered. hooks-mode + tool-mode themselves come from the `modes` behavior included above; here we
+# only add the search path. A registered mode is INERT until explicitly activated (hooks-mode sets
+# active_mode = None at mount; the tool-policy cascade only runs when a mode is set), so layering this
+# behavior CANNOT block a host bundle's write_file -- /claim-guard is available, never auto-active.
 #
-# search_paths is EXPLICIT (@claim-guard-behavior:modes) rather than relying on hooks-mode's lazy
-# base_path namespace scan: the namespace is THIS file's bundle.name, so it resolves identically
-# whether the behavior is layered standalone via --app or composed by bundle.md / with-probing.yaml.
+# search_paths uses the ROOT namespace @claim-guard (whose base_path is the repo root, where modes/
+# lives), NOT @claim-guard-behavior (whose base_path is behaviors/, i.e. a non-existent behaviors/modes/).
+# The root namespace resolves identically whether this behavior is layered via --app or composed by
+# bundle.md, because registry registration maps the discovered root's name to the repo root in both cases.
 hooks:
   - module: hooks-mode
     source: git+https://github.com/microsoft/amplifier-bundle-modes@main#subdirectory=modules/hooks-mode
     config:
       search_paths:
-        - "@claim-guard-behavior:modes"
+        - "@claim-guard:modes"
 
 # Thin awareness pointer only (~250 tokens). All heavy knowledge lives in agents and skills.
 context:
