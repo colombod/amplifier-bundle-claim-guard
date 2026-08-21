@@ -2,11 +2,21 @@ bundle:
   name: claim-guard-probing
   version: 0.1.0
   description: >
-    The Phase-2 dynamic capability: the three behavioural-penetration-testing agents (probe-designer,
-    pen-tester, regression-graduator) plus the claim-ledger tool they record empirical verdicts to.
-    Compose this behavior ONTO the static claim-guard bundle (see bundles/with-probing.yaml) to add
-    Digital-Twin adverse-state probing on top of the static gate. Kept OFF the MVP bundle.md so a
-    static-only run never pays the DTU dependency surface.
+    The FULL gate: the static claim-guard bench PLUS the Phase-2 dynamic behavioural-penetration-
+    testing bench (probe-designer, pen-tester, regression-graduator) and the execution primitives they
+    drive. Layer THIS behavior via `--app` when you want Digital-Twin adverse-state probing on top of
+    the static gate; layer the lighter `claim-guard.yaml` when you want static-only (no DTU surface).
+
+# Self-sufficient for `--app`: this behavior includes the static claim-guard behavior (which itself
+# brings the static bench + claim_ledger + modes/recipes/lsp + awareness) AND the execution-primitive
+# BEHAVIORS the dynamic bench delegates to. All includes are BEHAVIORS, never root bundles -- layering
+# a root would re-drag foundation into a session that already has it. This is why layering only the
+# static `claim-guard.yaml` never pays the DTU surface: that surface lives here, not there.
+includes:
+  - bundle: claim-guard:behaviors/claim-guard                                                              # static bench + claim_ledger + modes/recipes/lsp + /claim-guard mode + awareness
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-digital-twin-universe@main#subdirectory=behaviors/digital-twin-universe.yaml   # isolated adverse-state construction (probe-designer/pen-tester delegate here)
+  - bundle: git+https://github.com/bkrabach/amplifier-bundle-parallax-discovery@main#subdirectory=behaviors/parallax-discovery.yaml          # execution-based falsification (antagonist + methodology)
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-amplifier-tester@main#subdirectory=behaviors/amplifier-tester.yaml             # DTU setup helpers (setup-digital-twin + validator)
 
 # Same deterministic trust anchor the static bench uses. The dynamic agents record their empirical
 # verdicts (and set adverse_state_test) through this tool -- the seam that moves the gate. Pinned git
