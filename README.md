@@ -1,15 +1,33 @@
 # amplifier-bundle-claim-guard
 
-**An adversarial claim-verification gate for Amplifier — layered onto your sessions as a review
-gate.** For every claim a changeset makes, claim-guard locates the load-bearing code and tries to
-**prove the claim FALSE against the actual shipped source**, emits an auditable
-**claim-verification matrix**, and returns a **BLOCK / PASS / INDETERMINATE** verdict.
+An [Amplifier](https://github.com/microsoft/amplifier) bundle that runs an **adversarial
+claim-verification gate** over a changeset before you merge it.
+
+For every claim a change makes — commit messages, docstrings, spec and design docs, and the
+*implicit* promises of its purpose — claim-guard locates the load-bearing code and tries to **prove
+that claim FALSE against the actual shipped source**. It emits an auditable **claim-verification
+matrix** and a deterministic **BLOCK / PASS / INDETERMINATE** verdict.
 
 The operating question flips from *"does it work?"* to ***"how is this claim false?"*** The commit
 message is a **hypothesis to disprove**, not a fact.
 
-**The gate rule** (computed deterministically by the `claim_ledger` tool, never by an LLM) —
-merge is **BLOCKed** if any of:
+---
+
+## What it does
+
+It is the missing **implementation-layer** gate — the one that re-reads shipped code adversarially
+against its own claims. Distinct from, and complementary to:
+
+| Gate | Reasons about | Runs |
+|---|---|---|
+| Design council (`/council`) | intended mechanism, in prose | before code |
+| Code review | "does this look correct" | after code, confirmatory |
+| Happy-path E2E | success paths you thought of | after code, liveness |
+| **claim-guard** | **claim ↔ shipped-code correspondence** | **after build, before merge** |
+
+**The gate rule** (computed deterministically by the `claim_ledger` tool, never by an LLM) — merge
+is **BLOCKed** if any of:
+
 1. any claim aggregates to **REFUTED**;
 2. any **safety** claim has **no adverse-state test that fails on violation**;
 3. any claim aggregates to **UNTESTABLE** with no recorded human waiver;
@@ -20,113 +38,108 @@ merge is **BLOCKed** if any of:
 Aggregation across lenses for one claim is **worst-wins**:
 `REFUTED > UNTESTABLE > CONFIRMED > N/A`.
 
-It is the missing **implementation-layer** gate — the one that reads shipped code adversarially
-against its own claims. Distinct from, and complementary to:
+### What ships
 
-| Gate | Reasons about | Runs |
-|---|---|---|
-| Design council (`/council`) | intended mechanism, in prose | before code |
-| Code review | "does this look correct" | after code, confirmatory |
-| Happy-path E2E | success paths you thought of | after code, liveness |
-| **claim-guard** | **claim ↔ shipped-code correspondence** | **after build, before merge** |
+| Capability | What it is |
+|---|---|
+| **7 lens agents** (`claim-guard:*`) | the adversarial bench — two harvesters, two mandatory core auditors, three conditional lenses (see [The bench](#the-bench)) |
+| **`claim_ledger` tool** (15 ops) | the trust anchor — deterministic worst-wins aggregation, `file:line` evidence enforcement, and the gate rule |
+| **`/claim-guard` mode** | the review posture — blocks `write_file`/`edit_file` (the gate never edits the code it reviews); inert until activated |
+| **`claim-guard-here` skill** | INLINE, model-invocable — the concierge playbook an agent loads to drive the gate **in the current session**. This is the agent path. |
+| **`/claim-guard-review`** | the same gate in an **isolated forked** session, for a changeset the current session has not seen |
+| **`verify-claims` recipe** | the optional staged Phase-1 pipeline, with Gate A / Gate B human approvals |
+| **`probe-claims` recipe** | the Phase-2 dynamic behavioural pen-testing pass |
+| **5 discipline skills** | claim harvesting, verify-against-source, adverse-state catalog, properly-delivered-claim, probe patterns |
 
-### When to use this
+### When to use it
 
-Run claim-guard as a **pre-merge review gate over a changeset** — a diff or a PR (`base..head`), with
-its commit messages and any linked design doc. **Not per-commit:** it reasons about the claims a whole
-change makes, so a single commit mid-branch is usually the wrong unit.
+Run claim-guard as a **pre-merge review gate over a changeset** — a diff or a PR (`base..head`),
+with its commit messages and any linked design doc. **Not per-commit:** it reasons about the claims
+a whole change makes, so a single commit mid-branch is usually the wrong unit.
 
-It is **invoked deliberately**, not automatically: type `/claim-guard <changeset>` (the mode — it
-activates the review posture and starts the playbook), ask the session to run the gate
-conversationally, or run the `verify-claims` recipe. Wire it as a **manual pre-merge check** — the
-point in your flow where you'd otherwise say *"this looks right, ship it."* See
-**[Usage](#usage--run-the-gate-on-a-changeset)** for the three inputs it needs.
+It is **invoked deliberately**, not automatically. Wire it as a **manual pre-merge check** — the
+point in your flow where you'd otherwise say *"this looks right, ship it."*
 
 > **Status: two phases, both built and both exercised end-to-end.**
 > **Phase 1 — the static gate (`verify-claims`)** is proven end-to-end against a real regression PR
-> (see *What a real run produces* below), and **re-validated at current `HEAD`** after the harvester
-> rewrite (`docs/EVALUATION.md` §10 — still `BLOCK`, all four blockers caught).
-> **Phase 2 — the dynamic behavioural pen-testing bench (`probe-claims`)** has been run end-to-end in
-> a Digital Twin across **both** outcome branches: a **FALSIFIED** probe that empirically **REFUTED**
-> a safety claim, and a **SURVIVED** probe **graduated into a standing regression test** that clears
-> gate limb 2 (`docs/EVALUATION.md` §8.2–§8.3). **And the fidelity of those runs is now confirmed
-> against a real engine:** the core B-1 corruption claim was re-probed against a **live Neo4j** using
-> the verbatim production `MERGE` query — degraded (no `:Node` uniqueness constraint) produced
-> duplicate `:Node` rows (25/25 rounds, max 8) while the control (constraint present) never exceeded
-> 1, **reproducing** the in-process result and confirming the lighter models were faithful proxies
-> (`docs/EVALUATION.md` §8.4).
-> The two phases are joined only by the shared ledger, so Phase 2 composes onto any completed static
-> run. See the **Two phases** section below and `docs/KNOWN_ISSUES.md` (KI-2).
+> (see [*What a real run produces*](#what-a-real-run-produces)), and **re-validated at current
+> `HEAD`** after the harvester rewrite (`docs/EVALUATION.md` §10 — still `BLOCK`, all four blockers
+> caught).
+> **Phase 2 — the dynamic behavioural pen-testing bench (`probe-claims`)** has been run end-to-end
+> in a Digital Twin across **both** outcome branches: a **FALSIFIED** probe that empirically
+> **REFUTED** a safety claim, and a **SURVIVED** probe **graduated into a standing regression test**
+> that clears gate limb 2 (`docs/EVALUATION.md` §8.2–§8.3). **The fidelity of those runs is
+> confirmed against a real engine:** the core B-1 corruption claim was re-probed against a **live
+> Neo4j** using the verbatim production `MERGE` query — degraded (no `:Node` uniqueness constraint)
+> produced duplicate `:Node` rows (25/25 rounds, max 8) while the control never exceeded 1,
+> **reproducing** the in-process result (`docs/EVALUATION.md` §8.4).
+> See [Two phases](#two-phases-static-gate--dynamic-pen-testing) and `docs/KNOWN_ISSUES.md` (KI-2).
 
 ---
 
-## Two phases: static gate + dynamic pen-testing
+## Quick Start
 
-claim-guard runs as **two phases joined only by a shared ledger** — not by code coupling. Phase 2
-reads the ledger Phase 1 wrote (by `run_id`) and composes onto **any** completed static run.
+### 1. Install
 
-| | **Phase 1 — `verify-claims`** (static gate) | **Phase 2 — `probe-claims`** (dynamic pen-testing) |
-|---|---|---|
-| Question | *"Does the shipped code do what the claim says?"* | *"Can I make the forbidden thing actually happen?"* |
-| Method | read the source adversarially; refute against `file:line` | stand the adverse state up in a **Digital Twin** and attack it |
-| Bench | 7 static lenses (harvest pair + 2 core + 3 conditional, incl. `empirical-verifier`) | 3 dynamic agents (`probe-designer`, `pen-tester`, `regression-graduator`) |
-| Verdicts | `CONFIRMED / REFUTED / UNTESTABLE` (+ deterministic gate) | empirical `REFUTED` (new defect) or a **graduated standing test** |
-| Needs | any session (LSP for the chokepoint lens) | a **DTU-capable environment** (Incus/Docker) |
-| Terminates | at Gate B ("proceed to dynamic probing?") | at the final re-gate over the enriched ledger |
-| Status | **proven end-to-end** on a real PR, **re-validated at `HEAD`** (§10) | **run end-to-end in a twin across both outcome branches** (FALSIFIED→REFUTED, SURVIVED→graduated), **and confirmed against a live Neo4j** (§8.4) |
+There are two behaviors you can layer. Pick one — you do not need both.
 
-**The ledger is the seam.** `verify-claims` produces `.claim-guard/<run_id>/ledger.json`;
-`probe-claims` takes that same `run_id`, probes the claims whose *type* requires behavioural proof,
-and writes the empirical results back to the same ledger. There is no other connection between the
-two recipes — deleting Phase 2 leaves Phase 1 completely intact, and Phase 2 can be run days later on
-a static run that already finished.
-
-See **[Phase 2 — dynamic behavioural pen-testing](#phase-2--dynamic-behavioural-pen-testing-probe-claims)**
-below for the bench, the eligibility rule, graduation, and the Phase-2 install.
-
----
-
-## Install
-
-claim-guard is meant to ride **on top of** the bundle you already run, as a review gate available
-in every session. You install it once with `--app` and it auto-composes onto every session,
-whatever primary bundle (`-B …`) you use — you never switch bundles to get the gate.
-
-### ✅ The install: layer claim-guard with `--app`
+**A) Static gate** (recommended) — the fast, always-available pre-merge gate; layers onto your
+active bundle without pulling in foundation:
 
 ```bash
-amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main" --app
+amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=behaviors/claim-guard.yaml" --app
 ```
 
-> **Point `--app` at the bundle root** (the URL above), **not** at
-> `#subdirectory=behaviors/claim-guard.yaml`. An app bundle must be a *root* bundle; a bare
-> behavior file added with `--app` registers an empty stub and composes nothing. The root bundle
-> *is* the thin app-layer wrapper — its whole job is to deliver the claim-guard behavior (plus the
-> `modes` / `recipes` / `lsp` infra the mode, skills, and LSP tracing ride on) onto your session.
+**B) Full gate + Phase-2 pen-testing** — everything in A **plus** the dynamic behavioural
+penetration-testing bench (probe-designer, pen-tester, regression-graduator) and the execution
+primitives they drive (Digital Twin Universe, parallax-discovery, amplifier-tester). Layer this when
+you want adverse-state probing on top of the static gate — it carries a heavier surface (DTU etc.),
+which is exactly why it is a separate behavior:
 
-Layering it composes onto **every** session, regardless of which primary bundle you run. You get:
+```bash
+amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=behaviors/claim-guard-probing.yaml" --app
+```
 
-- the seven adversarial **lens agents** (`claim-guard:*`, incl. `empirical-verifier`), delegatable
-  from any session;
-- the **`claim_ledger`** tool (deterministic aggregation + the gate rule — 15 operations);
-- the **skills** — `claim-guard-here` (the agent-path concierge playbook, model-invocable),
-  `/claim-guard-review` (the isolated forked run), and the discipline skills;
-- the **`/claim-guard` mode** (blocks `write_file`/`edit_file`);
-- the **awareness context** telling the session the gate exists and how to drive it.
+**Standalone** — instead of layering, use a full root bundle as a dedicated session configuration
+(includes foundation). `claim-guard` is static-only; `with-probing` is the Phase-2 variant:
+
+```bash
+# static gate as a primary bundle
+amplifier bundle add git+https://github.com/colombod/amplifier-bundle-claim-guard@main
+amplifier bundle use claim-guard
+
+# full gate + Phase-2 as a primary bundle
+amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=bundles/with-probing.yaml"
+amplifier bundle use claim-guard-with-probing
+```
+
+**Which one?** `--app` composes the behavior onto **every** session, whatever primary bundle
+(`-B …`) you run — you layer the capability instead of switching bundles. That is the normal
+install: a pre-merge gate you carry with you. Start with **A (static)** — it settles most claims in
+seconds and never pays the DTU surface; reach for **B (with probing)** when a safety/quantitative
+claim needs first-hand adverse-state falsification. The **behavior is the product**; `bundle.md`
+(and `bundles/with-probing.yaml`) are thin wrappers that exist only for the standalone path. Each
+behavior is self-sufficient — it brings the `modes`, `recipes`, and `lsp` infra (and, for B, the
+DTU/parallax/tester primitives) that its agents ride on — so layering it composes the whole gate.
 
 > **A registered mode is inert until activated.** Layering claim-guard cannot block your host
 > bundle's `write_file` — `/claim-guard` is *available*, never auto-active.
 
-**Verify it layered in** (any base bundle you actually have works — here `foundation`, which ships
-by default; substitute whichever primary bundle you run):
+> You may see `⚠ Could not resolve provider module … — skipping plaintext-secret scan` warnings
+> during `bundle add`; they're harmless (the scan is skipped) and the add still succeeds.
+
+### 2. Verify it layered in
+
+Any base bundle you actually have works — here `foundation`, which ships by default; substitute
+whichever primary bundle you run:
 
 ```bash
 amplifier run -B foundation --mode single \
-  "List sub-agents named claim-guard:*, whether the claim_ledger tool is available and its op count, and any /claim-guard slash commands. Do not read code."
+  "List sub-agents named claim-guard:*, whether the claim_ledger tool is available and its op count, any /claim-guard slash commands, and whether the mode, recipes, and LSP tools are present. Do not read code."
 ```
 
-Real output from this exact command, app-composed onto a plain `-B foundation` session
-(captured 2026-08-20 against `main`):
+Observed from the behavior-`--app` install, composed onto a plain `-B foundation` session
+(captured 2026-08-21):
 
 ```
 (1) 7 claim-guard:* agents — boundary-adversary, chokepoint-mapper, claim-harvester,
@@ -137,106 +150,73 @@ Real output from this exact command, app-composed onto a plain `-B foundation` s
 (3) /claim-guard (the mode) + /claim-guard-review (isolated forked run) registered;
     claim-guard-here is model-invoked via load_skill, not a slash command
 (4) mode claim-guard available, NOT activated (inert — your host's write_file is unaffected)
+(5) mode tool: yes · recipes tool: yes · LSP tool: yes
 ```
 
-> You may see `⚠ Could not resolve provider module … — skipping plaintext-secret scan` warnings
-> during `bundle add`; they're harmless (the scan is skipped) and the add still succeeds.
+### 3. Give the gate its inputs
 
-**Driving the gate:**
-
-- **`/claim-guard <changeset>`** — the mode. Activates the review posture
-  (`write_file`/`edit_file` blocked) and starts the concierge playbook on that changeset. This is
-  the normal human entry point.
-- **`/claim-guard-review <changeset>`** — the same gate in an **isolated forked** session, for a
-  changeset the current session has not seen.
-- **conversationally** — ask the session to run it; it loads the `claim-guard-here` playbook
-  itself:
-
-> *"Run the claim-guard gate on `git diff main...HEAD` (here are the commit messages and the linked
-> design doc). Harvest explicit + implicit claims, fan the lenses out cold, aggregate with
-> `claim_ledger`, and give me the matrix + BLOCK/PASS verdict."*
-
-Whichever entry point you use, the agent path is the same: **load the `claim-guard-here` skill**,
-then let it drive. Driving `claim_ledger` op-by-op without the playbook produces an unattributed,
-ungated result.
-
-### Using it as a primary bundle instead
-
-The same root bundle can also be run directly as your primary bundle for a dedicated review
-session (instead of, or in addition to, the `--app` layering above):
-
-```bash
-amplifier run -B claim-guard "/claim-guard git diff main...HEAD"
-```
-
-Either way you get the identical capability — the `--app` layer just makes it available in *every*
-session without switching.
-
-### What the install gives you
-
-| Capability | Delivered by the `--app` (or `-B claim-guard`) install |
-|---|:---:|
-| 7 lens agents (`claim-guard:*`, incl. `empirical-verifier`) | ✅ |
-| `claim_ledger` tool (deterministic gate, 15 ops) | ✅ |
-| awareness context (gate exists + how) | ✅ |
-| `/claim-guard` **mode** (blocks file edits, inert until activated) | ✅ |
-| `claim-guard-here` **skill** (the agent-path playbook, model-invocable) | ✅ |
-| `/claim-guard-review` (isolated forked run) | ✅ |
-| 5 discipline skills (harvesting, verify-against-source, …) | ✅ |
-| `verify-claims` **recipe** (staged pipeline + Gate A/B) | ✅ (root composes the `recipes` bundle) |
-| LSP-backed `chokepoint-mapper` tracing | ✅ (root composes the `lsp` bundle) |
-
-**Why `--app`:** a gate you carry into every session — whatever primary bundle you're running — is
-exactly the "team-wide behavior" `--app` exists for. You keep your normal workflow and gain the
-full gate on demand, without ever switching your primary bundle.
-
----
-
-## Usage — run the gate on a changeset
-
-Give the gate three things about the revision under review:
+A run needs three things about the revision under review:
 
 1. **the shipped source tree** at that revision (a worktree/checkout — the code actually reviewed);
 2. **the diff** for the changeset (`base..head`);
 3. **the commit messages** for that range (a primary claim source).
 
-Then the concierge **harvests** explicit + implicit claims, **fans the lens bench out cold**,
-**debates** to consensus (one verbatim-relay round when lenses conflict), **aggregates** via
-`claim_ledger`, and emits a **claim-verification matrix** + a **BLOCK / PASS / INDETERMINATE**
-verdict — every CONFIRMED/REFUTED carrying a `file:line` anchor, every REFUTED a counter-case.
-
-### Prepare the inputs
-
 ```bash
 # Generic placeholders — substitute your repo/range:
 git -C /path/to/repo worktree add /tmp/review-worktree <HEAD_SHA>
 git -C /path/to/repo diff <BASE_SHA>..<HEAD_SHA> > /tmp/change.diff
-git -C /path/to/repo log <BASE_SHA>..<HEAD_SHA> > /tmp/commits.txt
+git -C /path/to/repo log  <BASE_SHA>..<HEAD_SHA> > /tmp/commits.txt
 ```
 
-### Run it (mode, isolated, or conversational)
+Then the concierge **harvests** explicit + implicit claims, **fans the lens bench out cold**,
+**debates** to consensus (one verbatim-relay round when lenses conflict), **aggregates** via
+`claim_ledger`, and emits the **matrix** + a **BLOCK / PASS / INDETERMINATE** verdict — every
+CONFIRMED/REFUTED carrying a `file:line` anchor, every REFUTED a counter-case.
 
-```text
-# The normal entry point — activates the review posture and starts the playbook:
-/claim-guard <BASE_SHA>..<HEAD_SHA>    (with the worktree, diff, and commits to hand)
+---
 
-# …or an isolated forked run against a changeset this session has not seen:
-/claim-guard-review <BASE_SHA>..<HEAD_SHA>
-```
+## Worked workflows
 
-…or just ask, in any session (the behavior is app-composed):
+Both audiences drive the same bench. The invariant either way: **load the `claim-guard-here`
+playbook and let it drive.** Driving `claim_ledger` op-by-op without the playbook produces an
+unattributed, ungated result.
+
+### Agent path — just ask, in any session
+
+With the behavior layered (`--app`), the gate is available in every session. You do not name a
+skill or a tool; you state the job. The agent loads the `claim-guard-here` playbook itself, harvests
+the claims, fans the lenses out cold, aggregates via `claim_ledger`, and returns the matrix and the
+verdict.
+
+> *"Review this changeset before I merge — is it safe to ship? Gate `git diff main...HEAD`. Here
+> are the commit messages and the linked design doc. Harvest explicit + implicit claims, fan the
+> lenses out cold, and give me the matrix plus the BLOCK/PASS verdict with `file:line` evidence.
+> Do not edit any code."*
+
+The fuller form, when you've prepared the three inputs from Quick Start step 3:
 
 > *"Run the claim-guard gate. Source under review: `/tmp/review-worktree`. Diff: `/tmp/change.diff`.
 > Commit messages: `/tmp/commits.txt`. Harvest explicit + implicit claims (UNION), fan the lenses
-> out cold, run one debate round on any conflict, then call `claim_ledger` to aggregate and
-> gate. Give me the matrix and the verdict with `file:line` evidence. Do not edit any code."*
+> out cold, run one debate round on any conflict, then call `claim_ledger` to aggregate and gate.
+> Give me the matrix and the verdict with `file:line` evidence. Do not edit any code."*
 
-The agent loads the **`claim-guard-here`** skill and drives the bench from there.
-
-### …or the staged recipe (needs the root bundle / the `recipes` bundle)
+### Human path — the slash commands
 
 ```text
-# Pauses at Gate A to review harvested claims, Gate B at the MVP boundary:
+# The normal human entry point — activates the review posture (write_file/edit_file blocked)
+# and starts the concierge playbook on that changeset:
+/claim-guard <BASE_SHA>..<HEAD_SHA>
+
+# …or the same gate in an isolated forked session, for a changeset this session has not seen:
+/claim-guard-review <BASE_SHA>..<HEAD_SHA>
+```
+
+### Staged path — the `verify-claims` recipe
+
+Use this when you want the run to **pause for human approval**: Gate A to review the harvested
+claims before verification, Gate B at the MVP boundary before dynamic probing.
+
+```text
 execute claim-guard:recipes/verify-claims.yaml with:
   changeset:       "<BASE_SHA>..<HEAD_SHA>"
   commit_messages: "<git log text>"
@@ -277,9 +257,9 @@ The methodology to reproduce this is in [`docs/EVALUATION.md`](docs/EVALUATION.m
 
 ## How to read the output
 
-A run produces two things: a **claim-verification matrix** (one row per claim) and a **gate verdict**.
-Both are computed by the `claim_ledger` tool — deterministic arithmetic over the ledger, never an LLM
-judgement. The full interface is in
+A run produces two things: a **claim-verification matrix** (one row per claim) and a **gate
+verdict**. Both are computed by the `claim_ledger` tool — deterministic arithmetic over the ledger,
+never an LLM judgement. The full interface is in
 [`docs/tool-claim-ledger-contract.md`](docs/tool-claim-ledger-contract.md).
 
 ### The gate verdict
@@ -300,8 +280,8 @@ never read as a green light. The limbs, at a glance:
 - **limb 3** — any claim aggregates to **UNTESTABLE** with no recorded human waiver → `BLOCK`
 - **limb 4** — any claim is **PENDING**, or any lens recorded an error → `INDETERMINATE`
   (reasons `claim-pending:<claim_id>` and `lens-error:<lens>@<claim_id>`)
-- **limb 5** — **zero claims harvested** → `INDETERMINATE` (reason `zero-claims-harvested`) — an empty
-  claim list is a harvest failure, not a clean bill of health
+- **limb 5** — **zero claims harvested** → `INDETERMINATE` (reason `zero-claims-harvested`) — an
+  empty claim list is a harvest failure, not a clean bill of health
 
 `gate_policy` modulates limbs 1–3 only: `advisory` reports instead of blocking; `blocking-with-waiver`
 (default) lets a recorded waiver clear a claim; `blocking` records waivers but they clear nothing.
@@ -358,7 +338,7 @@ to `CONFIRMED`, a lens must record an actual verdict. (Worked example: `clm_c397
 
 ---
 
-## The bench (MVP)
+## The bench
 
 **Harvesters** (cold, independent, UNIONed — inference can only *add* claims, never remove one)
 - **`claim-harvester`** — *"What does this change explicitly say it does?"*
@@ -372,12 +352,13 @@ to `CONFIRMED`, a lens must record an actual verdict. (Worked example: `clm_c397
 - **`chokepoint-mapper`** — *"Which paths into this mechanism are NOT guarded?"* (the "one branch over" catcher; uses LSP `incomingCalls`)
 - **`boundary-adversary`** — *"What input value inverts this invariant?"*
 - **`empirical-verifier`** — *"Stop reading — what happens when I actually RUN it?"* The council's
-  **empirical member**: every other lens reads the source, this one **executes** — runs the shipped
-  test that targets the property, else a minimal in-process repro, else the real function/tool
-  directly, else (if one is available and warranted) real behaviour in a DTU. Its verdict carries
-  **empirical evidence** — the exact command and the observed output — alongside the `file:line` of
-  what was exercised. Rostered when the changeset has a runnable/testable artifact. It is a
-  *lighter first-hand check* than the Phase-2 `pen-tester`, which builds full adverse states.
+  **empirical member**: every other lens reads the source, this one **executes** — the shipped test
+  that targets the property, else a minimal in-process repro, else the real function/tool directly,
+  else (only if one is available and warranted) a disposable container or a DTU. It runs only in a
+  safe, isolated, disposable environment it fully controls — never against anything real. Its
+  verdict carries **empirical evidence** — the exact command and the observed output — alongside the
+  `file:line` of what was exercised. Rostered when the changeset has a runnable/testable artifact.
+  It is a *lighter first-hand check* than the Phase-2 `pen-tester`, which builds full adverse states.
 
 The orchestration is **council-shaped**: a concierge fans the bench out cold, runs a
 **debate-to-consensus** loop (verbatim relay, no curation), and synthesizes a verdict **with
@@ -385,52 +366,30 @@ recorded dissent** plus a roster manifest — mirroring `amplifier-bundle-counci
 feeds a prior **design-council verdict** in as claims (every addressed `FAIL`/`CONCERN` becomes a
 claim to verify against the shipped code).
 
-## Composition
+---
 
-```
-amplifier-bundle-claim-guard/
-├── bundle.md                              # thin STATIC standalone (foundation, modes, recipes, lsp, own behavior)
-├── bundles/with-probing.yaml              # PHASE-2 standalone: static + dynamic behaviors + DTU/parallax/tester
-├── behaviors/
-│   ├── claim-guard.yaml                   # STATIC capability, SELF-SUFFICIENT: tool + tool-skills + hooks-mode
-│   │                                      #   + 7 agents + awareness (this is what --app installs)
-│   └── claim-guard-probing.yaml           # PHASE-2 capability: tool + 3 dynamic agents
-├── agents/                                # 7 static-bench + 3 dynamic-bench agents
-│   ├── claim-harvester.md                 # static — harvester
-│   ├── purpose-inquisitor.md              # static — harvester
-│   ├── correspondence-auditor.md          # static — mandatory core
-│   ├── test-correspondence-auditor.md     # static — mandatory core
-│   ├── chokepoint-mapper.md               # static — conditional
-│   ├── boundary-adversary.md              # static — conditional
-│   ├── empirical-verifier.md              # static — conditional; verifies by EXECUTION, not reading
-│   ├── probe-designer.md                  # Phase 2
-│   ├── pen-tester.md                      # Phase 2
-│   └── regression-graduator.md            # Phase 2
-├── context/claim-guard-awareness.md       # thin awareness pointer (~250 tokens)
-├── modes/claim-guard.md                   # review posture — blocks write_file/edit_file; shortcut /claim-guard
-│                                          #   (registered by the behavior via hooks-mode)
-├── skills/                                # 2 concierge entry points + 5 discipline skills
-│   │                                      #   (registered by the behavior via tool-skills)
-│   ├── claim-guard-here/                   # INLINE, model-invocable: the agent-path concierge playbook
-│   ├── claim-guard-review/                 # fork, human-only: /claim-guard-review — isolated run
-│   ├── claim-harvesting/
-│   ├── verify-against-source/
-│   ├── adverse-state-catalog/
-│   ├── properly-delivered-claim/
-│   └── probe-patterns/                     # Phase 2: per-claim-type probe design discipline
-├── recipes/
-│   ├── verify-claims.yaml                 # Phase 1: the staged static pipeline (needs the recipes bundle)
-│   └── probe-claims.yaml                  # Phase 2: dynamic pen-testing pipeline, consumes the ledger by run_id
-├── modules/tool-claim-ledger/             # the deterministic ledger + gate (the trust anchor; 15 ops)
-└── docs/
-    ├── tool-claim-ledger-contract.md       # authoritative interface contract for the module
-    ├── EVALUATION.md                        # acceptance methodology, Phase-2 (DTU) runs, at-HEAD re-validation
-    └── KNOWN_ISSUES.md                      # KI-1 harvest reproducibility (closed at revised bar), KI-2 Phase-2 (closed)
-```
+## Two phases: static gate + dynamic pen-testing
 
-The **`tool-claim-ledger`** Python module is the trust anchor: worst-wins aggregation, `file:line`
-evidence enforcement, the gate rule, and stable claim IDs across runs. Its interface is specified
-in `docs/tool-claim-ledger-contract.md`.
+claim-guard runs as **two phases joined only by a shared ledger** — not by code coupling. Phase 2
+reads the ledger Phase 1 wrote (by `run_id`) and composes onto **any** completed static run.
+
+| | **Phase 1 — `verify-claims`** (static gate) | **Phase 2 — `probe-claims`** (dynamic pen-testing) |
+|---|---|---|
+| Question | *"Does the shipped code do what the claim says?"* | *"Can I make the forbidden thing actually happen?"* |
+| Method | read the source adversarially; refute against `file:line` | stand the adverse state up in a **Digital Twin** and attack it |
+| Bench | 7 static lenses (harvest pair + 2 core + 3 conditional, incl. `empirical-verifier`) | 3 dynamic agents (`probe-designer`, `pen-tester`, `regression-graduator`) |
+| Verdicts | `CONFIRMED / REFUTED / UNTESTABLE` (+ deterministic gate) | empirical `REFUTED` (new defect) or a **graduated standing test** |
+| Needs | any session (LSP for the chokepoint lens) | a **DTU-capable environment** (Incus/Docker) |
+| Terminates | at Gate B ("proceed to dynamic probing?") | at the final re-gate over the enriched ledger |
+| Status | **proven end-to-end** on a real PR, **re-validated at `HEAD`** (§10) | **run end-to-end in a twin across both outcome branches** (FALSIFIED→REFUTED, SURVIVED→graduated), **and confirmed against a live Neo4j** (§8.4) |
+
+**The ledger is the seam.** `verify-claims` produces `.claim-guard/<run_id>/ledger.json`;
+`probe-claims` takes that same `run_id`, probes the claims whose *type* requires behavioural proof,
+and writes the empirical results back to the same ledger. There is no other connection between the
+two recipes — deleting Phase 2 leaves Phase 1 completely intact, and Phase 2 can be run days later on
+a static run that already finished.
+
+---
 
 ## Phase 2 — dynamic behavioural pen-testing (`probe-claims`)
 
@@ -514,19 +473,27 @@ interaction goes through the tool; that is what makes a run's context un-fudgeab
 
 ### Install / compose Phase 2
 
-The dynamic bench pulls in a Digital-Twin dependency surface, so it is kept **off** the static
-bundle and shipped as a separate standalone composition, `bundles/with-probing.yaml`:
+The dynamic bench pulls in a Digital-Twin dependency surface, so it lives in a **separate behavior**
+(`behaviors/claim-guard-probing.yaml`) kept **off** the static behavior — layering the static
+`claim-guard.yaml` never pays the DTU surface. To get Phase 2, layer the probing behavior instead
+(the same `--app` pattern as the static gate — see [Quick Start → Install, option B](#1-install)):
 
 ```bash
-# Phase-2 standalone: static gate + dynamic bench + DTU/parallax/amplifier-tester deps
+# Layer the FULL gate + Phase-2 onto every session:
+amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=behaviors/claim-guard-probing.yaml" --app
+
+# Or as a dedicated standalone session:
 amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=bundles/with-probing.yaml"
+amplifier bundle use claim-guard-with-probing
 ```
 
-`with-probing.yaml` composes: the static behavior + the `claim-guard-probing` behavior (the 3 dynamic
-agents + `claim_ledger`) + the execution primitives the pen-tester drives —
-`parallax-discovery` (antagonist / execution-based falsification), `digital-twin-universe` (isolated
-adverse-state construction), and `amplifier-tester` (DTU setup). It **requires a DTU-capable
-environment** (Incus/Docker) because the `pen-tester` stands real adverse states up in a Digital Twin.
+The `claim-guard-probing` behavior is self-sufficient: it composes the static behavior (the static
+bench + `claim_ledger` + `modes`/`recipes`/`lsp` + the `/claim-guard` mode + awareness), the 3
+dynamic agents (probe-designer, pen-tester, regression-graduator), and the execution primitives the
+pen-tester drives — `parallax-discovery` (antagonist / execution-based falsification),
+`digital-twin-universe` (isolated adverse-state construction), and `amplifier-tester` (DTU setup) —
+all as **behaviors**, never root bundles. It **requires a DTU-capable environment** (Incus/Docker)
+because the `pen-tester` stands real adverse states up in a Digital Twin.
 
 Run Phase 2 **after** a static `verify-claims` run, handing it the same `run_id`:
 
@@ -563,6 +530,60 @@ execute claim-guard:recipes/probe-claims.yaml with:
 > proxies (`docs/EVALUATION.md` §8.4). The live run drove the real production query directly rather
 > than the full HTTP server — the same underlying mechanism. See `docs/KNOWN_ISSUES.md` (KI-2).
 
+---
+
+## Repository structure
+
+```
+amplifier-bundle-claim-guard/
+├── bundle.md                              # thin STATIC standalone wrapper (foundation + own behavior)
+├── bundles/with-probing.yaml              # PHASE-2 standalone: static + dynamic behaviors + DTU/parallax/tester
+├── behaviors/
+│   ├── claim-guard.yaml                   # STATIC capability, SELF-SUFFICIENT: tool + tool-skills + hooks-mode
+│   │                                      #   + modes/recipes/lsp + 7 agents + awareness
+│   │                                      #   (--app option A: the static gate)
+│   └── claim-guard-probing.yaml           # PHASE-2 capability, SELF-SUFFICIENT: includes claim-guard.yaml
+│                                          #   + 3 dynamic agents + DTU/parallax/tester behaviors
+│                                          #   (--app option B: full gate + Phase-2)
+├── agents/                                # 7 static-bench + 3 dynamic-bench agents
+│   ├── claim-harvester.md                 # static — harvester
+│   ├── purpose-inquisitor.md              # static — harvester
+│   ├── correspondence-auditor.md          # static — mandatory core
+│   ├── test-correspondence-auditor.md     # static — mandatory core
+│   ├── chokepoint-mapper.md               # static — conditional
+│   ├── boundary-adversary.md              # static — conditional
+│   ├── empirical-verifier.md              # static — conditional; verifies by EXECUTION, not reading
+│   ├── probe-designer.md                  # Phase 2
+│   ├── pen-tester.md                      # Phase 2
+│   └── regression-graduator.md            # Phase 2
+├── context/claim-guard-awareness.md       # thin awareness pointer (~250 tokens)
+├── modes/claim-guard.md                   # review posture — blocks write_file/edit_file; shortcut /claim-guard
+│                                          #   (registered by the behavior via hooks-mode)
+├── skills/                                # 2 concierge entry points + 5 discipline skills
+│   │                                      #   (registered by the behavior via tool-skills)
+│   ├── claim-guard-here/                  # INLINE, model-invocable: the agent-path concierge playbook
+│   ├── claim-guard-review/                # fork, human-only: /claim-guard-review — isolated run
+│   ├── claim-harvesting/
+│   ├── verify-against-source/
+│   ├── adverse-state-catalog/
+│   ├── properly-delivered-claim/
+│   └── probe-patterns/                    # Phase 2: per-claim-type probe design discipline
+├── recipes/
+│   ├── verify-claims.yaml                 # Phase 1: the staged static pipeline
+│   └── probe-claims.yaml                  # Phase 2: dynamic pen-testing pipeline, consumes the ledger by run_id
+├── modules/tool-claim-ledger/             # the deterministic ledger + gate (the trust anchor; 15 ops)
+└── docs/
+    ├── tool-claim-ledger-contract.md      # authoritative interface contract for the module
+    ├── EVALUATION.md                      # acceptance methodology, Phase-2 (DTU) runs, at-HEAD re-validation
+    └── KNOWN_ISSUES.md                    # KI-1 harvest reproducibility (closed at revised bar), KI-2 Phase-2 (closed)
+```
+
+The **`tool-claim-ledger`** Python module is the trust anchor: worst-wins aggregation, `file:line`
+evidence enforcement, the gate rule, and stable claim IDs across runs. Its interface is specified
+in `docs/tool-claim-ledger-contract.md`.
+
+---
+
 ## Known issues
 
 See [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md). Two headlines:
@@ -578,6 +599,15 @@ See [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md). Two headlines:
   was confirmed against a **live Neo4j** running the verbatim production `MERGE` query — the in-process
   models are faithful proxies (`docs/EVALUATION.md` §8.4). The live run drove the real query directly
   rather than the full HTTP server; same mechanism.
+
+## Related
+
+- [Amplifier](https://github.com/microsoft/amplifier) — the runtime this bundle composes onto
+- [`amplifier-bundle-council`](https://github.com/microsoft/amplifier-bundle-council) — the
+  design-time council whose orchestration shape claim-guard mirrors (and whose verdict can be fed in
+  as claims)
+- [`amplifier-bundle-digital-twin-universe`](https://github.com/microsoft/amplifier-bundle-digital-twin-universe)
+  — the isolated environments the Phase-2 `pen-tester` stands adverse states up in
 
 ## License
 
