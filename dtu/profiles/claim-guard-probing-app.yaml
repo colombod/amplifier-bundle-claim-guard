@@ -1,0 +1,81 @@
+# =============================================================================
+# claim-guard Shape C — FULL/Phase-2 PROBING behavior layered via `--app`
+# -----------------------------------------------------------------------------
+# Proves the self-sufficient PROBING behavior, layered as an app-bundle, composes
+# the full gate PLUS the Phase-2 dynamic bench, and that the execution primitives
+# it delegates to are reachable. Installs amplifier + anthropic provider + the
+# claim-guard-probing behavior (as --app) from public GitHub @main, then self-
+# proves via the advertisement probe.
+#
+# REQUIRES (host env): ANTHROPIC_API_KEY   (forwarded via passthrough)
+#
+# NOTE: this shape pulls the digital-twin-universe / parallax-discovery /
+# amplifier-tester behaviors (more sources to clone), so provisioning is slower
+# than Shapes A/B.
+#
+# LAUNCH:
+#   amplifier-digital-twin launch dtu/profiles/claim-guard-probing-app.yaml \
+#     --name claim-guard-shapeC
+#   amplifier-digital-twin check-readiness claim-guard-shapeC   # -> ready:true == PASS
+#   amplifier-digital-twin exec claim-guard-shapeC -- cat /root/advertisement.txt
+#   amplifier-digital-twin destroy claim-guard-shapeC
+#
+# EXPECTED (readiness enforces): 10 claim-guard:* agents (7 static + pen-tester,
+#   probe-designer, regression-graduator) + claim_ledger(15 ops) + mode/recipes/
+#   lsp tools + delegatable digital-twin-universe:dtu-profile-builder,
+#   parallax-discovery:antagonist, amplifier-tester:setup-digital-twin.
+# =============================================================================
+name: claim-guard-probing-app
+description: >
+  Advertisement smoke — claim-guard PROBING (Phase-2) behavior layered via --app
+  onto foundation. Self-proves the full gate + dynamic bench + execution
+  primitives are advertised.
+base:
+  image: ubuntu:24.04
+
+passthrough:
+  allow_external: true
+  services:
+    - name: anthropic
+      key_env: ANTHROPIC_API_KEY
+
+provision:
+  setup_cmds:
+    - apt-get update && apt-get install -y git curl
+    - curl -LsSf https://astral.sh/uv/install.sh | sh
+    - uv tool install git+https://github.com/microsoft/amplifier
+    - |
+      mkdir -p /root/.amplifier
+      cat > /root/.amplifier/settings.yaml << 'EOF'
+      config:
+        providers:
+          - module: provider-anthropic
+            source: git+https://github.com/microsoft/amplifier-module-provider-anthropic@main
+            config:
+              api_key: ${ANTHROPIC_API_KEY}
+              default_model: claude-sonnet-4-6
+              priority: 1
+      EOF
+    - amplifier --version
+    - 'amplifier run "Say exactly: warmup-ok"'
+    # Install shape under test: the PROBING behavior as an app-bundle.
+    - amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=behaviors/claim-guard-probing.yaml" --app
+    - |
+      amplifier run -B git+https://github.com/microsoft/amplifier-foundation@main --mode single \
+        "List ONLY: (1) the sub-agents whose names start with claim-guard: one per line; (2) whether a tool named claim_ledger is available and how many operations it exposes; (3) whether a mode named claim-guard is available; (4) whether the mode, recipes, and lsp tools are present; (5) whether these delegatable agents are available: digital-twin-universe:dtu-profile-builder, parallax-discovery:antagonist, amplifier-tester:setup-digital-twin. Be terse. Do not read any files." \
+        | tee /root/advertisement.txt
+
+readiness:
+  - name: amplifier-installed
+    command: amplifier --version
+  # Self-proof: full gate + Phase-2 bench + delegatable execution primitives.
+  - name: advertises-full-gate-and-phase2
+    command: >
+      grep -q 'claim-guard:boundary-adversary' /root/advertisement.txt &&
+      grep -q 'claim-guard:pen-tester' /root/advertisement.txt &&
+      grep -q 'claim-guard:probe-designer' /root/advertisement.txt &&
+      grep -q 'claim-guard:regression-graduator' /root/advertisement.txt &&
+      grep -qi 'claim_ledger' /root/advertisement.txt &&
+      grep -q 'digital-twin-universe:dtu-profile-builder' /root/advertisement.txt &&
+      grep -q 'parallax-discovery:antagonist' /root/advertisement.txt &&
+      grep -q 'amplifier-tester:setup-digital-twin' /root/advertisement.txt

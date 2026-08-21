@@ -1,0 +1,75 @@
+# =============================================================================
+# claim-guard Shape A — BEHAVIOR layered via `--app` (RECOMMENDED install)
+# -----------------------------------------------------------------------------
+# Proves that layering the self-sufficient behavior as an app-bundle onto ANY
+# base session composes the full static gate. Installs amplifier + the anthropic
+# provider + the claim-guard *behavior* (as --app) from public GitHub @main, then
+# self-proves by running the advertisement probe ONCE and grepping the result.
+#
+# REQUIRES (host env): ANTHROPIC_API_KEY   (forwarded via passthrough; the probe
+#                      makes one real LLM call to enumerate the composed surface)
+#
+# LAUNCH:
+#   amplifier-digital-twin launch \
+#     .amplifier/... (this file) or dtu/profiles/claim-guard-behavior-app.yaml \
+#     --name claim-guard-shapeA
+#   amplifier-digital-twin check-readiness claim-guard-shapeA   # -> ready:true == PASS
+#   amplifier-digital-twin exec claim-guard-shapeA -- cat /root/advertisement.txt
+#   amplifier-digital-twin destroy claim-guard-shapeA
+#
+# EXPECTED (readiness enforces): 7 claim-guard:* agents + claim_ledger(15 ops)
+#   + mode/recipes/lsp tools present.
+# =============================================================================
+name: claim-guard-behavior-app
+description: >
+  Advertisement smoke — claim-guard STATIC behavior layered via --app onto
+  foundation. Self-proves the composed session advertises the full gate.
+base:
+  image: ubuntu:24.04
+
+passthrough:
+  allow_external: true
+  services:
+    - name: anthropic
+      key_env: ANTHROPIC_API_KEY
+
+provision:
+  setup_cmds:
+    - apt-get update && apt-get install -y git curl
+    - curl -LsSf https://astral.sh/uv/install.sh | sh
+    - uv tool install git+https://github.com/microsoft/amplifier
+    - |
+      mkdir -p /root/.amplifier
+      cat > /root/.amplifier/settings.yaml << 'EOF'
+      config:
+        providers:
+          - module: provider-anthropic
+            source: git+https://github.com/microsoft/amplifier-module-provider-anthropic@main
+            config:
+              api_key: ${ANTHROPIC_API_KEY}
+              default_model: claude-sonnet-4-6
+              priority: 1
+      EOF
+    - amplifier --version
+    # Warm-up seeds the lazy provider install before the probe.
+    - 'amplifier run "Say exactly: warmup-ok"'
+    # Install shape under test: the STATIC behavior as an app-bundle.
+    - amplifier bundle add "git+https://github.com/colombod/amplifier-bundle-claim-guard@main#subdirectory=behaviors/claim-guard.yaml" --app
+    # Advertisement probe (one LLM call) captured to a file for deterministic proof.
+    - |
+      amplifier run -B git+https://github.com/microsoft/amplifier-foundation@main --mode single \
+        "List ONLY: (1) the sub-agents whose names start with claim-guard: one per line; (2) whether a tool named claim_ledger is available and how many operations it exposes; (3) whether a mode named claim-guard is available; (4) whether the mode, recipes, and lsp tools are present. Be terse. Do not read any files." \
+        | tee /root/advertisement.txt
+
+readiness:
+  - name: amplifier-installed
+    command: amplifier --version
+  # Self-proof: the composed session must have advertised the full static gate.
+  - name: advertises-static-gate
+    command: >
+      grep -q 'claim-guard:boundary-adversary' /root/advertisement.txt &&
+      grep -q 'claim-guard:correspondence-auditor' /root/advertisement.txt &&
+      grep -q 'claim-guard:empirical-verifier' /root/advertisement.txt &&
+      grep -q 'claim-guard:test-correspondence-auditor' /root/advertisement.txt &&
+      grep -qi 'claim_ledger' /root/advertisement.txt &&
+      grep -q '15' /root/advertisement.txt
