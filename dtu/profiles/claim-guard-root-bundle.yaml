@@ -1,0 +1,70 @@
+# =============================================================================
+# claim-guard Shape B — ROOT BUNDLE standalone (dedicated session config)
+# -----------------------------------------------------------------------------
+# Proves the thin-wrapper root bundle composes the SAME static gate as the
+# behavior-app shape. Installs amplifier + anthropic provider + registers the
+# root bundle and sets it active, then self-proves via the advertisement probe.
+#
+# REQUIRES (host env): ANTHROPIC_API_KEY   (forwarded via passthrough)
+#
+# LAUNCH:
+#   amplifier-digital-twin launch dtu/profiles/claim-guard-root-bundle.yaml \
+#     --name claim-guard-shapeB
+#   amplifier-digital-twin check-readiness claim-guard-shapeB   # -> ready:true == PASS
+#   amplifier-digital-twin exec claim-guard-shapeB -- cat /root/advertisement.txt
+#   amplifier-digital-twin destroy claim-guard-shapeB
+#
+# EXPECTED (readiness enforces): 7 claim-guard:* agents + claim_ledger(15 ops)
+#   + mode/recipes/lsp tools present — identical set to Shape A.
+# =============================================================================
+name: claim-guard-root-bundle
+description: >
+  Advertisement smoke — claim-guard ROOT bundle standalone. Self-proves the
+  dedicated session config advertises the full static gate.
+base:
+  image: ubuntu:24.04
+
+passthrough:
+  allow_external: true
+  services:
+    - name: anthropic
+      key_env: ANTHROPIC_API_KEY
+
+provision:
+  setup_cmds:
+    - apt-get update && apt-get install -y git curl
+    - curl -LsSf https://astral.sh/uv/install.sh | sh
+    - uv tool install git+https://github.com/microsoft/amplifier
+    - |
+      mkdir -p /root/.amplifier
+      cat > /root/.amplifier/settings.yaml << 'EOF'
+      config:
+        providers:
+          - module: provider-anthropic
+            source: git+https://github.com/microsoft/amplifier-module-provider-anthropic@main
+            config:
+              api_key: ${ANTHROPIC_API_KEY}
+              default_model: claude-sonnet-4-6
+              priority: 1
+      EOF
+    - amplifier --version
+    - 'amplifier run "Say exactly: warmup-ok"'
+    # Install shape under test: root bundle registered + set active.
+    - amplifier bundle add git+https://github.com/colombod/amplifier-bundle-claim-guard@main
+    - amplifier bundle use claim-guard
+    - |
+      amplifier run -B claim-guard --mode single \
+        "List ONLY: (1) the sub-agents whose names start with claim-guard: one per line; (2) whether a tool named claim_ledger is available and how many operations it exposes; (3) whether a mode named claim-guard is available; (4) whether the mode, recipes, and lsp tools are present. Be terse. Do not read any files." \
+        | tee /root/advertisement.txt
+
+readiness:
+  - name: amplifier-installed
+    command: amplifier --version
+  - name: advertises-static-gate
+    command: >
+      grep -q 'claim-guard:boundary-adversary' /root/advertisement.txt &&
+      grep -q 'claim-guard:correspondence-auditor' /root/advertisement.txt &&
+      grep -q 'claim-guard:empirical-verifier' /root/advertisement.txt &&
+      grep -q 'claim-guard:test-correspondence-auditor' /root/advertisement.txt &&
+      grep -qi 'claim_ledger' /root/advertisement.txt &&
+      grep -q '15' /root/advertisement.txt
