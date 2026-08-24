@@ -60,20 +60,9 @@ a whole change makes, so a single commit mid-branch is usually the wrong unit.
 It is **invoked deliberately**, not automatically. Wire it as a **manual pre-merge check** — the
 point in your flow where you'd otherwise say *"this looks right, ship it."*
 
-> **Status: two phases, both built and both exercised end-to-end.**
-> **Phase 1 — the static gate (`verify-claims`)** is proven end-to-end against a real regression PR
-> (see [*What a real run produces*](#what-a-real-run-produces)), and **re-validated at current
-> `HEAD`** after the harvester rewrite (`docs/EVALUATION.md` §10 — still `BLOCK`, all four blockers
-> caught).
-> **Phase 2 — the dynamic behavioural pen-testing bench (`probe-claims`)** has been run end-to-end
-> in a Digital Twin across **both** outcome branches: a **FALSIFIED** probe that empirically
-> **REFUTED** a safety claim, and a **SURVIVED** probe **graduated into a standing regression test**
-> that clears gate limb 2 (`docs/EVALUATION.md` §8.2–§8.3). **The fidelity of those runs is
-> confirmed against a real engine:** the core B-1 corruption claim was re-probed against a **live
-> Neo4j** using the verbatim production `MERGE` query — degraded (no `:Node` uniqueness constraint)
-> produced duplicate `:Node` rows (25/25 rounds, max 8) while the control never exceeded 1,
-> **reproducing** the in-process result (`docs/EVALUATION.md` §8.4).
-> See [Two phases](#two-phases-static-gate--dynamic-pen-testing) and `docs/KNOWN_ISSUES.md` (KI-2).
+> **Status.** Two phases, both built and exercised end-to-end: the **static gate** (`verify-claims`)
+> and the **dynamic pen-testing** pass (`probe-claims`). The full methodology and evaluation runs are
+> in `docs/EVALUATION.md`. Open bugs and requests are tracked as GitHub issues on this repo.
 
 ---
 
@@ -506,29 +495,10 @@ execute claim-guard:recipes/probe-claims.yaml with:
   max_rounds:   3
 ```
 
-> **Honesty note — what is proven, and the one residual.** The full behavioural loop **has been run
-> end-to-end in a twin, across both outcome branches** (`docs/EVALUATION.md` §8.2–§8.3):
->
-> - **FALSIFIED → REFUTED.** `probe-claims` consumed an existing `verify-claims` ledger via the
->   `run_id` seam and drove `probe-designer` → `pen-tester` on the B-1 safety claim
->   (`clm_2a25c125`, *"a degraded server does not create a duplicate `Node`"*). The probe **made the
->   forbidden violation happen** — adverse 25/25 rounds duplicated, control 0/25 — and `REFUTED` was
->   recorded with `file:line` evidence. Correctly **not** graduated: a falsified probe is a new-defect
->   finding, not a survivor.
-> - **SURVIVED → graduated.** The `max_delete` cap claim (`clm_c39773b8`, B-3) survived its probe and
->   `graduate_test` **ACCEPTED** it on all four criteria (red-before, green-after, deterministic ×3,
->   asserts-the-property), setting `standing_test` and `adverse_state_test.exists = true` — **gate limb
->   2 cleared**. The graduated test was independently re-run on the host: **21 passed.** It is a real,
->   committable pytest.
->
-> **Fidelity is now confirmed against a real engine.** The B-1/B-3 runs above used the
-> design-sanctioned lighter path (self-contained in-process models of the exact mechanisms). The B-1
-> corruption claim was then **re-probed against a live Neo4j** (`docker neo4j:5`) using the **verbatim
-> production `MERGE` query** — degraded (no `:Node` uniqueness constraint) produced duplicate `:Node`
-> rows in **25/25 rounds (max 8, 165 extra rows)**, while the control (constraint present) never
-> exceeded 1. This **reproduces** the in-process result, confirming the lighter models were faithful
-> proxies (`docs/EVALUATION.md` §8.4). The live run drove the real production query directly rather
-> than the full HTTP server — the same underlying mechanism. See `docs/KNOWN_ISSUES.md` (KI-2).
+> **What's proven.** The behavioural loop has been run end-to-end across both outcomes — a probe
+> that made a forbidden violation happen (and so disproved the claim), and a probe that survived and
+> was graduated into a committable regression test. The full evaluation, including a confirming run
+> against a live database, is in `docs/EVALUATION.md`.
 
 ---
 
@@ -574,8 +544,7 @@ amplifier-bundle-claim-guard/
 ├── modules/tool-claim-ledger/             # the deterministic ledger + gate (the trust anchor; 15 ops)
 └── docs/
     ├── tool-claim-ledger-contract.md      # authoritative interface contract for the module
-    ├── EVALUATION.md                      # acceptance methodology, Phase-2 (DTU) runs, at-HEAD re-validation
-    └── KNOWN_ISSUES.md                    # KI-1 harvest reproducibility (closed at revised bar), KI-2 Phase-2 (closed)
+    └── EVALUATION.md                      # acceptance methodology, evaluation runs, at-HEAD re-validation
 ```
 
 The **`tool-claim-ledger`** Python module is the trust anchor: worst-wins aggregation, `file:line`
@@ -584,21 +553,15 @@ in `docs/tool-claim-ledger-contract.md`.
 
 ---
 
-## Known issues
+## Known issues & requests
 
-See [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md). Two headlines:
+Open bugs and feature requests are tracked as
+[GitHub issues](https://github.com/colombod/amplifier-bundle-claim-guard/issues) on this repo.
 
-- **KI-1 — harvest reproducibility (closed at a revised bar, with an accepted residual).** The **gate
-  verdict and the four-blocker catch are stable run-to-run**, and the **categories of concern** that
-  surface are reproducible (measured concern-type overlap 0.93). But the **exact** claim matrix is
-  **not** byte-reproducible — the harvesters vary in which claims they select and at what granularity,
-  so claim counts differ between runs. **Trust the verdict and the blocker catch; treat the detailed
-  matrix as indicative, not diffable.**
-- **KI-2 — Phase-2 behavioural pen-testing (closed).** The behavioural loop is proven end-to-end
-  across both outcome branches (FALSIFIED→REFUTED, SURVIVED→graduated), and the B-1 corruption claim
-  was confirmed against a **live Neo4j** running the verbatim production `MERGE` query — the in-process
-  models are faithful proxies (`docs/EVALUATION.md` §8.4). The live run drove the real query directly
-  rather than the full HTTP server; same mechanism.
+One behaviour to know up front: the harvesters vary run-to-run in *which* claims they pull out and at
+what granularity, so the exact claim list (and count) is not reproducible between runs. The gate
+verdict and the blocker catch are stable — treat the detailed claim list as indicative, not something
+to diff run-to-run.
 
 ## Related
 
