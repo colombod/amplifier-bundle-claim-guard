@@ -6,15 +6,20 @@ from __future__ import annotations
 
 import pytest
 
-from amplifier_module_tool_claim_ledger.ops import op_add_claim, op_record_verdict
+from amplifier_module_tool_claim_ledger.ops import (
+    op_add_claim,
+    op_record_verdict,
+    op_start_run,
+)
 from amplifier_module_tool_claim_ledger.store import LedgerStore
 
 
 def _seed_claim(store: LedgerStore) -> tuple[str, str]:
+    run_id = op_start_run(store, {})["run_id"]
     result = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "a degraded server will not corrupt data",
             "type": "safety",
             "source": "docstring:registry.py:88",

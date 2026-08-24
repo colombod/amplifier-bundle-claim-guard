@@ -9,14 +9,16 @@ from amplifier_module_tool_claim_ledger.ops import (
     op_record_debate,
     op_record_verdict,
     op_render_matrix,
+    op_start_run,
 )
 from amplifier_module_tool_claim_ledger.store import LedgerStore
 
 
 def test_record_debate_persists_verbatim_relay(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
-        {"run_id": "", "text": "x", "type": "correspondence", "source": "pr-body"},
+        {"run_id": run_id, "text": "x", "type": "correspondence", "source": "pr-body"},
     )
     run_id = added["run_id"]
 
@@ -47,9 +49,10 @@ def test_record_debate_persists_verbatim_relay(store: LedgerStore) -> None:
 
 
 def test_render_matrix_json_round_trips_run_record(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
-        {"run_id": "", "text": "x", "type": "correspondence", "source": "pr-body"},
+        {"run_id": run_id, "text": "x", "type": "correspondence", "source": "pr-body"},
     )
     run_id = added["run_id"]
 
@@ -63,10 +66,11 @@ def test_render_matrix_json_round_trips_run_record(store: LedgerStore) -> None:
 def test_render_matrix_markdown_includes_verdict_and_coverage_line(
     store: LedgerStore,
 ) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "a degraded server will not corrupt data",
             "type": "safety",
             "source": "docstring:registry.py:88",
@@ -94,9 +98,10 @@ def test_render_matrix_markdown_includes_verdict_and_coverage_line(
 
 
 def test_render_matrix_invalid_format_rejected(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
-        {"run_id": "", "text": "x", "type": "correspondence", "source": "pr-body"},
+        {"run_id": run_id, "text": "x", "type": "correspondence", "source": "pr-body"},
     )
     run_id = added["run_id"]
 

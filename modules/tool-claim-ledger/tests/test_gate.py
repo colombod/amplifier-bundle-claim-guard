@@ -8,6 +8,7 @@ from amplifier_module_tool_claim_ledger.ops import (
     op_add_claim,
     op_gate,
     op_record_verdict,
+    op_start_run,
     op_waive,
 )
 from amplifier_module_tool_claim_ledger.store import LedgerStore
@@ -62,9 +63,10 @@ def _refute(
 
 
 def test_zero_claims_is_indeterminate_s8(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
-        {"run_id": "", "text": "x", "type": "correspondence", "source": "pr-body"},
+        {"run_id": run_id, "text": "x", "type": "correspondence", "source": "pr-body"},
     )
     run_id = added["run_id"]
     # Remove the claim to simulate a harvest that produced nothing, keeping the run.
@@ -81,10 +83,11 @@ def test_zero_claims_is_indeterminate_s8(store: LedgerStore) -> None:
 
 
 def test_pending_claim_is_indeterminate(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "unverdicted claim",
             "type": "correspondence",
             "source": "pr-body",
@@ -102,10 +105,11 @@ def test_pending_claim_is_indeterminate(store: LedgerStore) -> None:
 
 
 def test_limb1_any_refuted_blocks(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "cap enforced",
             "type": "quantitative",
             "source": "docstring:admin.py:10",
@@ -125,7 +129,10 @@ def test_limb1_any_refuted_blocks(store: LedgerStore) -> None:
 
     assert result["verdict"] == "BLOCK"
     reasons = {
-        b["reason"] for b in result["blocking_claims"] if b["claim_id"] == claim_id
+        r
+        for b in result["blocking_claims"]
+        if b["claim_id"] == claim_id
+        for r in b["reasons"]
     }
     assert "REFUTED" in reasons
 
@@ -135,10 +142,11 @@ def test_limb2_confirmed_safety_claim_without_adverse_state_test_still_blocks_b4
 ) -> None:
     """The B-4 case: tests certified the wrong thing. A CONFIRMED safety claim with no
     adverse-state test still BLOCKs, independent of limb 1."""
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "a degraded server will not corrupt data",
             "type": "safety",
             "source": "docstring:registry.py:88",
@@ -151,16 +159,20 @@ def test_limb2_confirmed_safety_claim_without_adverse_state_test_still_blocks_b4
 
     assert result["verdict"] == "BLOCK"
     reasons = {
-        b["reason"] for b in result["blocking_claims"] if b["claim_id"] == claim_id
+        r
+        for b in result["blocking_claims"]
+        if b["claim_id"] == claim_id
+        for r in b["reasons"]
     }
     assert "no-adverse-state-test" in reasons
 
 
 def test_limb2_clears_when_adverse_state_test_exists(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "a degraded server will not corrupt data",
             "type": "safety",
             "source": "docstring:registry.py:88",
@@ -191,10 +203,11 @@ def test_limb2_clears_when_adverse_state_test_exists(store: LedgerStore) -> None
 def test_limb3_untestable_blocks_under_blocking_with_waiver_by_default(
     store: LedgerStore,
 ) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "concurrent writes are serialized",
             "type": "concurrency",
             "source": "pr-body",
@@ -218,16 +231,20 @@ def test_limb3_untestable_blocks_under_blocking_with_waiver_by_default(
     )
     assert gate_result["verdict"] == "BLOCK"
     reasons = {
-        b["reason"] for b in gate_result["blocking_claims"] if b["claim_id"] == claim_id
+        r
+        for b in gate_result["blocking_claims"]
+        if b["claim_id"] == claim_id
+        for r in b["reasons"]
     }
     assert "UNTESTABLE-unwaived" in reasons
 
 
 def test_limb3_waiver_clears_under_blocking_with_waiver(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "concurrent writes are serialized",
             "type": "concurrency",
             "source": "pr-body",
@@ -263,10 +280,11 @@ def test_limb3_waiver_clears_under_blocking_with_waiver(store: LedgerStore) -> N
 
 
 def test_waiver_does_not_clear_under_blocking_policy(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "concurrent writes are serialized",
             "type": "concurrency",
             "source": "pr-body",
@@ -298,10 +316,11 @@ def test_waiver_does_not_clear_under_blocking_policy(store: LedgerStore) -> None
 
 
 def test_untestable_is_reported_not_blocked_under_advisory(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "concurrent writes are serialized",
             "type": "concurrency",
             "source": "pr-body",
@@ -322,16 +341,20 @@ def test_untestable_is_reported_not_blocked_under_advisory(store: LedgerStore) -
     gate_result = op_gate(store, {"run_id": run_id, "gate_policy": "advisory"})
     assert gate_result["verdict"] == "PASS"
     reasons = {
-        b["reason"] for b in gate_result["blocking_claims"] if b["claim_id"] == claim_id
+        r
+        for b in gate_result["blocking_claims"]
+        if b["claim_id"] == claim_id
+        for r in b["reasons"]
     }
     assert "UNTESTABLE-unwaived" in reasons  # still reported
 
 
 def test_advisory_never_blocks_even_with_refuted_claim(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "cap enforced",
             "type": "quantitative",
             "source": "docstring:admin.py:10",
@@ -349,14 +372,15 @@ def test_advisory_never_blocks_even_with_refuted_claim(store: LedgerStore) -> No
 
     gate_result = op_gate(store, {"run_id": run_id, "gate_policy": "advisory"})
     assert gate_result["verdict"] == "PASS"
-    assert any(b["reason"] == "REFUTED" for b in gate_result["blocking_claims"])
+    assert any("REFUTED" in b["reasons"] for b in gate_result["blocking_claims"])
 
 
 def test_all_confirmed_no_safety_no_untestable_passes(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "returns the sorted list",
             "type": "correspondence",
             "source": "pr-body",
@@ -372,9 +396,10 @@ def test_all_confirmed_no_safety_no_untestable_passes(store: LedgerStore) -> Non
 
 
 def test_invalid_gate_policy_is_rejected(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
-        {"run_id": "", "text": "x", "type": "correspondence", "source": "pr-body"},
+        {"run_id": run_id, "text": "x", "type": "correspondence", "source": "pr-body"},
     )
     run_id = added["run_id"]
 

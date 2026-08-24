@@ -21,6 +21,7 @@ from amplifier_module_tool_claim_ledger.ops import (
     op_graduate_test,
     op_record_probe,
     op_record_verdict,
+    op_start_run,
 )
 from amplifier_module_tool_claim_ledger.store import LedgerStore
 
@@ -34,10 +35,11 @@ _FULL_STANDING_TEST = {
 
 
 def _add_safety_claim(store: LedgerStore) -> tuple[str, str]:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "a degraded server will not corrupt data",
             "type": "safety",
             "source": "docstring:registry.py:88",
@@ -128,7 +130,10 @@ def test_record_probe_survived_does_not_clear_limb2_on_its_own(
     gate_result = op_gate(store, {"run_id": run_id})
     assert gate_result["verdict"] == "BLOCK"
     reasons = {
-        b["reason"] for b in gate_result["blocking_claims"] if b["claim_id"] == claim_id
+        r
+        for b in gate_result["blocking_claims"]
+        if b["claim_id"] == claim_id
+        for r in b["reasons"]
     }
     assert "no-adverse-state-test" in reasons
     assert gate_result["coverage"]["probed"] == 1
@@ -254,17 +259,21 @@ def test_defer_claim_sets_deferred_and_still_blocks_safety_claim(
     gate_result = op_gate(store, {"run_id": run_id})
     assert gate_result["verdict"] == "BLOCK"
     reasons = {
-        b["reason"] for b in gate_result["blocking_claims"] if b["claim_id"] == claim_id
+        r
+        for b in gate_result["blocking_claims"]
+        if b["claim_id"] == claim_id
+        for r in b["reasons"]
     }
     assert "no-adverse-state-test" in reasons
     assert gate_result["coverage"]["deferred"] == 1
 
 
 def test_defer_claim_not_eligible_rejected(store: LedgerStore) -> None:
+    run_id_for_add = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id_for_add,
             "text": "returns the sorted list",
             "type": "correspondence",
             "source": "pr-body",
@@ -451,7 +460,7 @@ def test_graduate_test_unknown_run_and_claim(store: LedgerStore) -> None:
 def test_coverage_counters_reflect_probed_and_deferred_claims(
     store: LedgerStore,
 ) -> None:
-    run_id = ""
+    run_id = op_start_run(store, {})["run_id"]
     probed_added = op_add_claim(
         store,
         {

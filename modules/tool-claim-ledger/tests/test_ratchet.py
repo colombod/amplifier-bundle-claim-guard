@@ -6,15 +6,20 @@ is rejected, and the prior REFUTED stands.
 
 from __future__ import annotations
 
-from amplifier_module_tool_claim_ledger.ops import op_add_claim, op_record_verdict
+from amplifier_module_tool_claim_ledger.ops import (
+    op_add_claim,
+    op_record_verdict,
+    op_start_run,
+)
 from amplifier_module_tool_claim_ledger.store import LedgerStore
 
 
 def _seed_refuted_claim(store: LedgerStore) -> tuple[str, str]:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "MERGE is idempotent",
             "type": "correspondence",
             "source": "docstring:merge.py:40",

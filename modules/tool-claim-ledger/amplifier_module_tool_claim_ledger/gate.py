@@ -70,18 +70,21 @@ def compute_gate(run_record: dict[str, Any], gate_policy: str) -> dict[str, Any]
     def waived_clears(claim: dict[str, Any]) -> bool:
         return claim.get("waiver") is not None and gate_policy == "blocking-with-waiver"
 
-    blocking_claims: list[dict[str, str]] = []
+    # Reasons are collected PER claim (claim_id -> ordered list of tripped limb
+    # reasons), then flattened into one grouped entry per blocked claim below.
+    # This is a presentation-only change: the set of claims that trip any limb,
+    # and therefore the BLOCK/PASS/INDETERMINATE verdict, is byte-for-byte
+    # identical to the old flat-list logic -- only how those trips are grouped
+    # and ordered for the reader changes.
+    reasons_by_claim: dict[str, list[str]] = {}
+
+    def _trip(claim: dict[str, Any], reason: str) -> None:
+        reasons_by_claim.setdefault(claim["claim_id"], []).append(reason)
 
     # Limb 1 -- any REFUTED aggregate.
     for claim in claims:
         if claim.get("aggregate") == "REFUTED" and not waived_clears(claim):
-            blocking_claims.append(
-                {
-                    "claim_id": claim["claim_id"],
-                    "text": claim["text"],
-                    "reason": "REFUTED",
-                }
-            )
+            _trip(claim, "REFUTED")
 
     # Limb 2 -- safety claim with no adverse-state test. Independent of limb 1: a
     # CONFIRMED safety claim with no adverse-state test still blocks.
@@ -89,25 +92,40 @@ def compute_gate(run_record: dict[str, Any], gate_policy: str) -> dict[str, Any]
         if claim.get("type") in _SAFETY_TYPES:
             adverse_state_test = claim.get("adverse_state_test") or {}
             if not adverse_state_test.get("exists") and not waived_clears(claim):
-                blocking_claims.append(
-                    {
-                        "claim_id": claim["claim_id"],
-                        "text": claim["text"],
-                        "reason": "no-adverse-state-test",
-                    }
-                )
+                _trip(claim, "no-adverse-state-test")
 
     # Limb 3 -- UNTESTABLE with no waiver. Computed regardless of policy so `advisory`
     # can report it; the policy only controls whether it produces a final BLOCK.
     for claim in claims:
         if claim.get("aggregate") == "UNTESTABLE" and not waived_clears(claim):
-            blocking_claims.append(
-                {
-                    "claim_id": claim["claim_id"],
-                    "text": claim["text"],
-                    "reason": "UNTESTABLE-unwaived",
-                }
-            )
+            _trip(claim, "UNTESTABLE-unwaived")
+
+    # Group into one entry per blocked claim, substantive (REFUTED present)
+    # first, then procedural, each in stable claim order -- deterministic.
+    claims_by_id = {claim["claim_id"]: claim for claim in claims}
+    substantive: list[dict[str, Any]] = []
+    procedural: list[dict[str, Any]] = []
+    for claim in claims:
+        claim_id = claim["claim_id"]
+        reasons = reasons_by_claim.get(claim_id)
+        if not reasons:
+            continue
+        entry = {
+            "claim_id": claim_id,
+            "text": claims_by_id[claim_id]["text"],
+            "reasons": reasons,
+            "category": "substantive" if "REFUTED" in reasons else "procedural",
+        }
+        (substantive if entry["category"] == "substantive" else procedural).append(
+            entry
+        )
+
+    blocking_claims: list[dict[str, Any]] = substantive + procedural
+    blocking_summary = {
+        "substantive": len(substantive),
+        "procedural": len(procedural),
+        "total_claims_blocked": len(blocking_claims),
+    }
 
     if indeterminate_reasons:
         verdict = "INDETERMINATE"
@@ -123,6 +141,7 @@ def compute_gate(run_record: dict[str, Any], gate_policy: str) -> dict[str, Any]
         "run_id": run_record.get("run_id"),
         "verdict": verdict,
         "blocking_claims": blocking_claims,
+        "blocking_summary": blocking_summary,
         "indeterminate_reasons": indeterminate_reasons,
         "coverage": coverage,
     }

@@ -1,8 +1,9 @@
 """add_claims: bulk add, reusing op_add_claim's validation per element.
 
-Covers: fresh-run creation on omitted run_id, adding into an existing run,
-partial-failure isolation (one malformed element must not drop the rest of
-the batch), empty/non-list rejection, and added/updated counting.
+Covers: rejection (writes nothing) of an empty/missing run_id up front -- the
+seam-guard symmetric with op_add_claim's own rejection -- adding into an
+existing run, partial-failure isolation (one malformed element must not drop
+the rest of the batch), empty/non-list rejection, and added/updated counting.
 """
 
 from __future__ import annotations
@@ -11,7 +12,12 @@ from amplifier_module_tool_claim_ledger.ops import op_add_claims, op_start_run
 from amplifier_module_tool_claim_ledger.store import LedgerStore
 
 
-def test_bulk_add_into_a_fresh_run_when_run_id_omitted(store: LedgerStore) -> None:
+def test_empty_run_id_on_add_claims_is_rejected_loudly_and_creates_no_run(
+    store: LedgerStore,
+) -> None:
+    """The silent-fork seam applies to the batch op too: an empty/missing
+    run_id rejects the WHOLE batch up front (no iteration, nothing written),
+    symmetric with op_add_claim's own rejection."""
     result = op_add_claims(
         store,
         {
@@ -30,19 +36,9 @@ def test_bulk_add_into_a_fresh_run_when_run_id_omitted(store: LedgerStore) -> No
         },
     )
 
-    assert result["ok"] is True
-    assert result["run_id"].startswith("run_")
-    assert result["added"] == 2
-    assert result["updated"] == 0
-    assert result["errors"] == []
-    assert len(result["results"]) == 2
-    for entry in result["results"]:
-        assert entry["was_new"] is True
-        assert "claim_id" in entry
-
-    run_record = store.load(result["run_id"])
-    assert run_record is not None
-    assert len(run_record["claims"]) == 2
+    assert result["ok"] is False
+    assert result["error"] == "invalid_input"
+    assert store.list_run_ids() == []
 
 
 def test_bulk_add_into_an_existing_run(store: LedgerStore) -> None:
@@ -77,9 +73,12 @@ def test_partial_failure_isolation_bad_element_does_not_drop_the_rest(
 ) -> None:
     """One malformed claim among valid ones is isolated in `errors`; the rest
     (including claims AFTER the bad one) are still added."""
+    run_id = op_start_run(store, {})["run_id"]
+
     result = op_add_claims(
         store,
         {
+            "run_id": run_id,
             "claims": [
                 {"text": "claim 1", "type": "correspondence", "source": "src:1"},
                 {"text": "claim 2", "type": "correspondence", "source": "src:2"},
@@ -87,7 +86,7 @@ def test_partial_failure_isolation_bad_element_does_not_drop_the_rest(
                 # claim 4: missing required 'source' -- malformed.
                 {"text": "claim 4", "type": "correspondence"},
                 {"text": "claim 5", "type": "correspondence", "source": "src:5"},
-            ]
+            ],
         },
     )
 
@@ -106,13 +105,16 @@ def test_partial_failure_isolation_bad_element_does_not_drop_the_rest(
 
 
 def test_non_dict_element_is_isolated_in_errors(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
+
     result = op_add_claims(
         store,
         {
+            "run_id": run_id,
             "claims": [
                 {"text": "claim ok", "type": "correspondence", "source": "src:1"},
                 "not-a-dict",
-            ]
+            ],
         },
     )
 
@@ -124,19 +126,22 @@ def test_non_dict_element_is_isolated_in_errors(store: LedgerStore) -> None:
 
 
 def test_updated_count_reflects_idempotent_readd(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
+
     first = op_add_claims(
         store,
         {
+            "run_id": run_id,
             "claims": [
                 {
                     "text": "returns sorted output",
                     "type": "correspondence",
                     "source": "pr-body",
                 },
-            ]
+            ],
         },
     )
-    run_id = first["run_id"]
+    assert first["run_id"] == run_id
 
     second = op_add_claims(
         store,

@@ -83,7 +83,11 @@ lenses' verdicts). Then specify:
    is not an assertion; "duplicate `:Node` count == 0" is.
 4. **Falsifiability check** — can this experiment actually make the claim false? If you cannot
    construct an adverse state or an observable violation, say so: the claim is **not falsifiable**,
-   which is a finding to record, not a probe to hand off.
+   which is a finding to record, not a probe to hand off. Record it with `claim_ledger`
+   **`defer_claim`** (using the literal `run_id`) with a `reason` — this sets
+   `probe_eligibility="deferred"` and increments the `deferred` coverage counter. Deferred ≠ passed:
+   a deferred **safety** claim still trips gate limb 2, correctly. (Use `defer_claim` too for any
+   probe-eligible claim you run out of `probe_budget` to reach — never leave it silently un-probed.)
 
 Load the `probe-patterns` skill for per-type probe shapes and the `digital-twin-universe` skill so
 your setup targets what the DTU can actually stand up. Temporal claims MUST be three-phase
