@@ -9,6 +9,15 @@ description: >
 version: "0.1.0"
 tags: ["claim-guard", "probe", "dynamic", "pen-test", "dtu", "phase-2", "staged", "approval-gates"]
 
+# --- STATUS: OPTIONAL / NOT THE ROUTINE PATH ----------------------------------
+# The CANONICAL way to drive Phase-2 probing is the `claim-guard-here` concierge
+# skill (Phase 6 routes no-adverse-state-test / UNTESTABLE blocks to the probe
+# agents, which record via record_probe / graduate_test / defer_claim). This
+# recipe is an OPTIONAL automation for `recipes`-tool users; it is NOT a
+# prerequisite and NOT the advertised default. Prefer the skill unless you have a
+# specific reason to run the pipeline. (Decision: wt_cg_tuning-gvs.)
+# ------------------------------------------------------------------------------
+
 # --- TRUST BOUNDARY -----------------------------------------------------------
 # This recipe guarantees ONLY:
 #   (a) it CONSUMES an existing ledger by run_id -- it never re-harvests, never re-verifies, never
@@ -90,6 +99,7 @@ stages:
 
           Repo under review: {{repo_path}}
         output: "probe_specs"
+        timeout: 600
 
   # === GATE B' : proceed to DTU pen-testing? (spend gate before DTU) ============
   - name: "gate-probe-spend"
@@ -113,6 +123,7 @@ stages:
           Record that the DTU pen-test spend gate was approved for run_id={{run_id}}. Proceed to the
           budget-capped pen-test pass.
         output: "gate_probe_ack"
+        timeout: 120
 
   # === Stage 6: PEN-TEST -- stand up adverse state in a DTU, attack, capture =====
   - name: "pen-test"
@@ -144,6 +155,7 @@ stages:
 
           Repo under review (read-only; never edit it): {{repo_path}}
         output: "pen_results"
+        timeout: 600
 
   # === Stage 7: GRADUATE -- only durable probes become standing tests ============
   - name: "graduate"
@@ -170,6 +182,7 @@ stages:
           Pen-test results: {{pen_results}}
           Repo under review (read-only): {{repo_path}}
         output: "graduation_results"
+        timeout: 600
 
   # === Stage 8: AGGREGATE + GATE -- deterministic (the tool decides) =============
   - name: "aggregate-and-gate-final"
@@ -197,6 +210,7 @@ stages:
           probe/deferred bookkeeping fields); the authoritative gate signal is the verdicts +
           adverse_state_test, which ARE recorded. Surface the artifact paths regardless.
         output: "final_gate_result"
+        timeout: 120
 
 # Outputs:
 #   probe_specs        -- designed falsification experiments (also on disk under probes/)

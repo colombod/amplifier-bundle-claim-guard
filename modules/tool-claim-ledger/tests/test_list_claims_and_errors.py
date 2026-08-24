@@ -6,13 +6,16 @@ from amplifier_module_tool_claim_ledger.ops import (
     op_add_claim,
     op_list_claims,
     op_record_verdict,
+    op_start_run,
     op_waive,
 )
 
 
 def test_list_claims_filters_by_type_and_aggregate(store) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     a = op_add_claim(
-        store, {"run_id": "", "text": "claim a", "type": "safety", "source": "pr-body"}
+        store,
+        {"run_id": run_id, "text": "claim a", "type": "safety", "source": "pr-body"},
     )
     run_id = a["run_id"]
     b = op_add_claim(
@@ -52,9 +55,10 @@ def test_list_claims_unknown_run_id(store) -> None:
 
 
 def test_record_verdict_unknown_claim_id(store) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
-        {"run_id": "", "text": "x", "type": "correspondence", "source": "pr-body"},
+        {"run_id": run_id, "text": "x", "type": "correspondence", "source": "pr-body"},
     )
     result = op_record_verdict(
         store,
@@ -71,9 +75,10 @@ def test_record_verdict_unknown_claim_id(store) -> None:
 
 
 def test_record_verdict_invalid_verdict_value(store) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
-        {"run_id": "", "text": "x", "type": "correspondence", "source": "pr-body"},
+        {"run_id": run_id, "text": "x", "type": "correspondence", "source": "pr-body"},
     )
     result = op_record_verdict(
         store,
@@ -90,9 +95,10 @@ def test_record_verdict_invalid_verdict_value(store) -> None:
 
 
 def test_waive_unknown_claim(store) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     added = op_add_claim(
         store,
-        {"run_id": "", "text": "x", "type": "correspondence", "source": "pr-body"},
+        {"run_id": run_id, "text": "x", "type": "correspondence", "source": "pr-body"},
     )
     result = op_waive(
         store,

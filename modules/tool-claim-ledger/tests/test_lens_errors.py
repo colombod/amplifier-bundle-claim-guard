@@ -22,13 +22,15 @@ from amplifier_module_tool_claim_ledger.ops import (
     op_record_lens_error,
     op_record_verdict,
     op_render_matrix,
+    op_start_run,
 )
 from amplifier_module_tool_claim_ledger.store import LedgerStore
 
 
 def _add(store: LedgerStore, **overrides: object) -> tuple[str, str]:
+    run_id = op_start_run(store, {})["run_id"]
     payload: dict[str, object] = {
-        "run_id": "",
+        "run_id": run_id,
         "text": "a degraded server will not corrupt data",
         "type": "safety",
         "source": "docstring:registry.py:88",
@@ -209,7 +211,7 @@ def test_gate_reports_distinct_lens_error_reason_and_is_indeterminate(
     # it as CONFIRMED -- but limb 2 does independently apply to PENDING safety
     # claims too; assert specifically that a BLOCK reason wasn't invented from
     # the lens error itself).
-    assert not any(b["reason"] == "REFUTED" for b in result["blocking_claims"])
+    assert not any("REFUTED" in b["reasons"] for b in result["blocking_claims"])
 
 
 def test_gate_distinguishes_claim_pending_from_lens_error_reasons(

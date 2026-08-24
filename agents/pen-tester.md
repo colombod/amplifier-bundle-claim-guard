@@ -74,8 +74,18 @@ For each probe spec (from the probe-designer, at `.claim-guard/<run-id>/probes/<
 
 ## Three outcomes, and how each hits the ledger
 
-Record via `claim_ledger` `record_verdict` (lens `"pen-tester"`). This is the seam that moves the
-gate — the ledger computes the verdict deterministically from what you record.
+For **every** probed claim, record BOTH of these to `claim_ledger`, using the literal `run_id` you
+were handed:
+
+1. **`record_probe`** (lens `"pen-tester"`) — attaches the probe result to the claim and increments
+   the `probed` coverage counter. Pass `probe: {designed_by, adverse_state, outcome, evidence,
+   artifacts_path}` where `outcome` is one of **`FALSIFIED`** (violation occurred → claim false),
+   **`SURVIVED`** (claim held and the probe goes RED on violation), or **`UNBUILDABLE`** (could not
+   stand the adverse state up). This is the door Phase-2 must go through — a probe recorded only as a
+   `record_verdict` leaves `coverage.probed == 0` and the run looks un-probed.
+2. **`record_verdict`** (lens `"pen-tester"`) — moves the deterministic gate verdict, exactly as
+   below. A `record_probe` does **not** by itself change the verdict or clear limb 2; the two calls
+   are complementary (probe = coverage + artifact; verdict = the gate-moving signal).
 
 - **Violation occurred → the claim is FALSE.** A NEW defect beyond static reading.
   Record `verdict: "REFUTED"` with an `evidence` anchor (a `path:line` into the captured artifact,
@@ -110,9 +120,12 @@ gate — the ledger computes the verdict deterministically from what you record.
 - **A probe that errors or a DTU that won't spin is a fail-loud event**, never a silent skip and
   never a synthetic pass. Report it prominently by claim id; do not record a CONFIRMED you did not
   earn.
-- Note for the concierge: this ledger module has **no operation to populate the `probe` field or the
-  `probed` coverage counter** — the gate-moving signal is the `adverse_state_test` + verdict you
-  record here, and the durable probe scripts live on disk under `.claim-guard/<run-id>/`.
+- Note for the concierge: populate the `probe` field and the `probed` coverage counter with the
+  **`record_probe`** op (this is the door — using only `record_verdict` leaves `coverage.probed == 0`
+  and the run reads as un-probed, the exact defect this agent exists to prevent). The gate-moving
+  limb-2 signal is separate: a SURVIVED probe still needs either a graduated standing test
+  (regression-graduator via `graduate_test`) or an `adverse_state_test` set on `record_verdict` to
+  clear it. The durable probe scripts live on disk under `.claim-guard/<run-id>/`.
 
 Close with a one-line-per-claim summary: probed / survived-with-test / REFUTED-new-defect /
 deferred, and the single most important new defect you found.

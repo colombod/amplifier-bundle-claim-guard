@@ -35,23 +35,28 @@ class ClaimLedgerTool:
             "Dispatched by `operation`: add_claim, list_claims, record_verdict, "
             "record_lens_error, record_debate, waive, record_probe, defer_claim, "
             "graduate_test, aggregate, gate, render_matrix, start_run, add_claims, "
-            "report. Persists to <repo>/<run_dir>/<run_id>/ledger.json -- the only "
-            "write capability in the gate session. Computes worst-wins aggregation "
-            "and the gate verdict as pure, deterministic functions -- never via LLM "
-            "judgment -- and structurally enforces file:line evidence anchors and an "
-            "evidence ratchet so a REFUTED verdict cannot be talked away without new "
-            "evidence. Phase-2 probing coverage (record_probe/defer_claim/"
-            "graduate_test) is honest: only graduate_test (full criteria met) or "
-            "record_verdict's adverse_state_test clear gate limb 2 for a safety "
-            "claim -- a SURVIVED-but-ungraduated probe or a deferred claim still "
-            "blocks. record_lens_error makes a crashed lens observable to gate limb 4 "
-            "(distinct from a merely-PENDING claim) without ever fabricating a "
-            "verdict. start_run/add_claims/report are thin conveniences over the "
+            "report, list_runs. Persists to <repo>/<run_dir>/<run_id>/ledger.json -- "
+            "the only write capability in the gate session. Computes worst-wins "
+            "aggregation and the gate verdict as pure, deterministic functions -- "
+            "never via LLM judgment -- and structurally enforces file:line evidence "
+            "anchors and an evidence ratchet so a REFUTED verdict cannot be talked "
+            "away without new evidence. Phase-2 probing coverage (record_probe/"
+            "defer_claim/graduate_test) is honest: only graduate_test (full criteria "
+            "met) or record_verdict's adverse_state_test clear gate limb 2 for a "
+            "safety claim -- a SURVIVED-but-ungraduated probe or a deferred claim "
+            "still blocks. record_lens_error makes a crashed lens observable to gate "
+            "limb 4 (distinct from a merely-PENDING claim) without ever fabricating "
+            "a verdict. start_run/add_claims/report are thin conveniences over the "
             "same handlers -- they never bypass validation: start_run explicitly "
             "creates a run without adding a claim first; add_claims bulk-adds a "
             "`claims` array in one call (isolating per-element failures in `errors` "
             "without dropping the rest of the batch); report returns gate + "
-            "render_matrix's combined output in one round trip."
+            "render_matrix's combined output in one round trip. list_runs is "
+            "read-only and takes no run_id: it enumerates every run under the "
+            "confinement root and flags STRANDED runs -- ones with claims but at "
+            "least one still PENDING (no verdict), i.e. harvested-but-unverdicted "
+            "-- so an abandoned run is a queryable state rather than a silent drop; "
+            "pass stranded_only to filter to just those runs."
         )
 
     @property
@@ -67,8 +72,10 @@ class ClaimLedgerTool:
                 "run_id": {
                     "type": "string",
                     "description": (
-                        "Run identifier. If empty on the first add_claim, one is derived "
-                        "and returned. Required for all other operations."
+                        "Run identifier. Required for every operation, including "
+                        "add_claim and add_claims -- obtain one from start_run first. "
+                        "An empty/omitted run_id is rejected (invalid_input); it is "
+                        "never silently derived into a new, different run."
                     ),
                 },
                 "claim_id": {
@@ -214,6 +221,16 @@ class ClaimLedgerTool:
                         "add_claims: batch of claims to add, each shaped like "
                         "add_claim's own fields. A malformed element is isolated in "
                         "the result's `errors` array and does not abort the batch."
+                    ),
+                },
+                "stranded_only": {
+                    "type": "boolean",
+                    "description": (
+                        "list_runs: if true, only return runs that are STRANDED -- "
+                        "have at least one claim and at least one of those claims "
+                        "still PENDING (no verdict recorded). `stranded_count` in "
+                        "the result always reflects the true total across ALL runs "
+                        "regardless of this filter."
                     ),
                 },
             },

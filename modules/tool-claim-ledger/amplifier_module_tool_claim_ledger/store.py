@@ -64,3 +64,21 @@ class LedgerStore:
 
     def new_run_id(self) -> str:
         return "run_" + uuid.uuid4().hex[:8]
+
+    def list_run_ids(self) -> list[str]:
+        """Enumerate existing run_ids under the confinement root.
+
+        Read-only: never creates the confinement root or any run directory.
+        A run_id is any immediate subdirectory of the confinement root that
+        contains a `ledger.json` file. If the confinement root does not
+        exist, returns an empty list rather than raising.
+        """
+        confinement = self._confinement_root()
+        if not confinement.is_dir():
+            return []
+        run_ids = [
+            entry.name
+            for entry in confinement.iterdir()
+            if entry.is_dir() and (entry / "ledger.json").is_file()
+        ]
+        return sorted(run_ids)

@@ -74,17 +74,23 @@ captured; miss any one and it is rejected as a one-shot finding.
 **GRADUATE** — all three hold. Write the committable test to
 `.claim-guard/<run-id>/proposed-tests/<claim_id>_test.py` (or the target repo's language/framework),
 with a header comment naming the claim, the forbidden violation, and the red-before/green-after
-evidence refs. Then confirm the claim's adverse-state test on the ledger via `claim_ledger`
-`record_verdict` (lens `"regression-graduator"`) so the record shows a *durable* test now exists:
+evidence refs. Then graduate it on the ledger via `claim_ledger` **`graduate_test`** (using the
+literal `run_id` you were handed) — this is the door: it records `standing_test` AND sets
+`adverse_state_test.exists=true` in one op, the only Phase-2 path that clears gate limb 2. It
+**structurally rejects (writes nothing)** unless all of `asserts_property`, `red_before`,
+`green_after` are truthy and `deterministic_runs >= 3` — so a half-earned graduation cannot land:
 
 ```json
 {
-  "claim_id": "<id>", "lens": "regression-graduator", "verdict": "CONFIRMED",
-  "evidence": [".claim-guard/<run-id>/proposed-tests/<claim_id>_test.py:1"],
-  "adverse_state_test": {
-    "exists": true,
-    "test_ref": ".claim-guard/<run-id>/proposed-tests/<claim_id>_test.py::<test_name>",
-    "reason": "graduated: red-before/green-after captured, deterministic 3x, asserts the property"
+  "operation": "graduate_test",
+  "run_id": "<the literal run_id>",
+  "claim_id": "<id>",
+  "standing_test": {
+    "path": ".claim-guard/<run-id>/proposed-tests/<claim_id>_test.py",
+    "asserts_property": true,
+    "red_before": true,
+    "green_after": true,
+    "deterministic_runs": 3
   }
 }
 ```
@@ -101,10 +107,10 @@ safety claim looking delivered.
 
 - A graduated test is the ONLY thing that turns an asserted safety claim into a *delivered* one.
   Rejecting a bad probe is not a failure of your job — it is your job.
-- Note for the concierge: this ledger module has **no operation to populate the `standing_test`
-  field** — the durable-test signal you can set is the `adverse_state_test` via `record_verdict`, and
-  the committable test file lives on disk under `proposed-tests/`. Surface the file path so the human
-  can commit it.
+- Note for the concierge: populate the `standing_test` field with the **`graduate_test`** op — it
+  sets `standing_test` and clears limb 2 (`adverse_state_test.exists=true`) atomically, and refuses
+  unless the graduation criteria are met (so it cannot be faked). The committable test file lives on
+  disk under `proposed-tests/`. Surface the file path so the human can commit it.
 
 Close with a one-line-per-probe summary: GRADUATED (with the proposed-test path) or REJECTED (with
 the failed criterion), and the count of claims whose safety limb is now cleared by a graduated test.

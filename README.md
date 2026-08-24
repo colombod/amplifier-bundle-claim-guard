@@ -47,8 +47,8 @@ Aggregation across lenses for one claim is **worst-wins**:
 | **`/claim-guard` mode** | the review posture — blocks `write_file`/`edit_file` (the gate never edits the code it reviews); inert until activated |
 | **`claim-guard-here` skill** | INLINE, model-invocable — the concierge playbook an agent loads to drive the gate **in the current session**. This is the agent path. |
 | **`/claim-guard-review`** | the same gate in an **isolated forked** session, for a changeset the current session has not seen |
-| **`verify-claims` recipe** | the optional staged Phase-1 pipeline, with Gate A / Gate B human approvals |
-| **`probe-claims` recipe** | the Phase-2 dynamic behavioural pen-testing pass |
+| **`verify-claims` recipe** | OPTIONAL / experimental Phase-1 pipeline (Gate A / Gate B approvals) — **not the routine path; the `claim-guard-here` skill is canonical.** In practice every real gate run is concierge-driven |
+| **`probe-claims` recipe** | OPTIONAL / experimental Phase-2 pen-testing pipeline — same status: prefer the concierge skill's Phase-2 routing |
 | **5 discipline skills** | claim harvesting, verify-against-source, adverse-state catalog, properly-delivered-claim, probe patterns |
 
 ### When to use it

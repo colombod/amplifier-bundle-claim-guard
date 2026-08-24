@@ -7,6 +7,15 @@ description: >
 version: "0.1.0"
 tags: ["claim-guard", "verification", "gate", "adversarial", "review", "staged", "approval-gates"]
 
+# --- STATUS: OPTIONAL / NOT THE ROUTINE PATH ----------------------------------
+# The CANONICAL, routinely-used way to run the gate is the `claim-guard-here`
+# concierge skill (loaded inline, or via `/claim-guard`). In practice every real
+# gate run is concierge-hand-driven; this recipe is an OPTIONAL automation for
+# `recipes`-tool users who want the flat, inspectable Phase-1 pipeline. It is NOT
+# a prerequisite and NOT the advertised default. Prefer the skill unless you have
+# a specific reason to run the pipeline. (Decision: wt_cg_tuning-gvs.)
+# ------------------------------------------------------------------------------
+
 # --- TRUST BOUNDARY -----------------------------------------------------------
 # This recipe guarantees ONLY:
 #   (a) a neutral changeset digest (foundation:explorer, judgment-free),
@@ -66,6 +75,7 @@ stages:
           - a file index for the changed area.
           Do NOT judge correctness, risk, or quality. Facts only.
         output: "changeset_digest"
+        timeout: 600
 
   # === Stage 1: HARVEST — cold, independent, UNIONed ==========================
   - name: "harvest"
@@ -110,6 +120,7 @@ stages:
           then design docs. Type each claim; bias toward `safety` on prevention language. Do NOT
           invent claims. If you find zero, say so explicitly and note where you looked.
         output: "explicit_claims"
+        timeout: 600
 
       # Cold: references only the changeset + issue/why + optional council verdict.
       - id: "harvest-implicit"
@@ -151,6 +162,7 @@ stages:
           handled? is that a safety/integrity property? Ground every inferred claim in a specific
           basis. You may only ADD claims — never contradict or delete an explicit one.
         output: "implicit_claims"
+        timeout: 600
 
       # UNION into the ledger and read back the consolidated, typed claim list.
       - id: "union-ledger"
@@ -164,6 +176,7 @@ stages:
           Return ONLY the JSON the tool returns (the consolidated claim list with ids, types, sources,
           and inferred flags).
         output: "claim_ledger"
+        timeout: 120
 
   # === GATE A: human reviews the claim ledger BEFORE verification spend =======
   - name: "gate-a-claim-review"
@@ -190,6 +203,7 @@ stages:
           Record that Gate A was approved for run_id={{run_id}}. No changes to the ledger here —
           the human has confirmed the claim set. Proceed.
         output: "gate_a_ack"
+        timeout: 120
 
   # === Stage 2: ROSTER — resolve which conditional lenses apply ==============
   - name: "roster"
@@ -223,6 +237,7 @@ stages:
             "boundary_adversary_reason": "one-line reason (included or excluded)"
           }
         output: "roster"
+        timeout: 120
 
   # === Stage 3: STATIC-VERIFY FAN-OUT — cold, independent ====================
   # Each lens reads the ledger claims + the changeset digest ONLY. No lens prompt references another
@@ -242,6 +257,7 @@ stages:
           {{changeset_digest}}
           Repo: {{repo_path}}
         output: "r1_correspondence"
+        timeout: 600
 
       - id: "verify-test-correspondence"
         agent: "claim-guard:test-correspondence-auditor"
@@ -257,6 +273,7 @@ stages:
           {{changeset_digest}}
           Repo: {{repo_path}}
         output: "r1_test_correspondence"
+        timeout: 600
 
       - id: "verify-chokepoint"
         condition: "{{roster.include_chokepoint_mapper}} == 'true'"
@@ -272,6 +289,7 @@ stages:
           {{changeset_digest}}
           Repo: {{repo_path}}
         output: "r1_chokepoint"
+        timeout: 600
 
       - id: "verify-boundary"
         condition: "{{roster.include_boundary_adversary}} == 'true'"
@@ -287,6 +305,7 @@ stages:
           {{changeset_digest}}
           Repo: {{repo_path}}
         output: "r1_boundary"
+        timeout: 600
 
   # === Stage 3z: ROSTER MANIFEST — trust artifact ============================
   - name: "roster-manifest"
@@ -317,6 +336,7 @@ stages:
           Then STOP. Do NOT run debate rounds and do NOT synthesize — that is the concierge's job per
           skills/claim-guard-review (the concierge playbook).
         output: "manifest"
+        timeout: 120
 
   # === Stage 4: AGGREGATE + GATE — deterministic (the tool decides) ==========
   - name: "aggregate-and-gate"
@@ -340,6 +360,7 @@ stages:
             4. any lens errored / no structured verdict -> INDETERMINATE (never PASS);
             5. zero claims harvested -> INDETERMINATE (never PASS).
         output: "gate_result"
+        timeout: 120
 
   # === GATE B: proceed to dynamic probing? (MVP terminates here) =============
   - name: "gate-b-dynamic-probing"
@@ -365,6 +386,7 @@ stages:
           implemented; if approved, note that probe-claims.yaml (Phase 2) is the continuation and
           consumes this run's ledger. Summarize the final static gate verdict for the human.
         output: "final_summary"
+        timeout: 120
 
 # Outputs:
 #   changeset_digest  — neutral map of the change

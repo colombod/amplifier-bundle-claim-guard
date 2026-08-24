@@ -11,15 +11,17 @@ from amplifier_module_tool_claim_ledger.ops import (
     op_gate,
     op_render_matrix,
     op_report,
+    op_start_run,
 )
 from amplifier_module_tool_claim_ledger.store import LedgerStore
 
 
 def _added_run(store: LedgerStore) -> str:
+    run_id = op_start_run(store, {})["run_id"]
     result = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "returns sorted output",
             "type": "correspondence",
             "source": "pr-body",

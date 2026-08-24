@@ -36,6 +36,7 @@ def _new_run_record(run_id: str, gate_policy: str) -> dict[str, Any]:
         "claims": [],
         "debate": [],
         "rejections": [],
+        "gates": [],
     }
 
 
@@ -83,9 +84,13 @@ def op_add_claim(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
             "message": "text, type, and source are required",
         }
 
-    run_id = data.get("run_id") or ""
+    run_id = data.get("run_id")
     if not run_id:
-        run_id = store.new_run_id()
+        return {
+            "ok": False,
+            "error": "invalid_input",
+            "message": "run_id is required",
+        }
 
     run_record = store.load(run_id)
     if run_record is None:
@@ -685,9 +690,21 @@ def op_gate(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
 
     for claim in run_record["claims"]:
         claim["aggregate"] = compute_aggregate(claim["verdicts"])
+
+    gate_result = compute_gate(run_record, gate_policy)
+
+    run_record.setdefault("gates", []).append(
+        {
+            "at": _now_iso(),
+            "verdict": gate_result["verdict"],
+            "gate_policy": gate_policy,
+            "blocking_count": len(gate_result["blocking_claims"]),
+            "coverage": gate_result["coverage"],
+        }
+    )
     store.save(run_id, run_record)
 
-    return compute_gate(run_record, gate_policy)
+    return gate_result
 
 
 def op_render_matrix(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
@@ -720,11 +737,13 @@ def op_render_matrix(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]
 def op_start_run(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
     """Explicitly create a new run, without adding a claim first.
 
-    Thin composition: reuses the exact run-creation path `op_add_claim` takes
-    when it auto-creates a run on an empty `run_id` (`store.new_run_id()` +
-    `_new_run_record()` + `store.save()`), and `validate_gate_policy` for
-    rejecting an unknown policy. Lets a caller (or `op_add_claims`) obtain a
-    run_id up front without adding a claim first.
+    The sole way to obtain a run_id: `op_add_claim` and `op_add_claims` no
+    longer auto-create a run on an empty/omitted `run_id` -- they reject it
+    loudly instead (closing a silent-fork seam where a claim meant for an
+    already-open run could land on a fresh, different one). Uses
+    `store.new_run_id()` + `_new_run_record()` + `store.save()` directly, and
+    `validate_gate_policy` for rejecting an unknown policy. Callers must call
+    this first and pass the returned `run_id` to every subsequent op.
     """
     gate_policy = data.get("gate_policy") or "blocking-with-waiver"
     if not validate_gate_policy(gate_policy):
@@ -743,12 +762,13 @@ def op_start_run(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
 def op_add_claims(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
     """Bulk-add claims, reusing `op_add_claim`'s validation for each element.
 
-    Threads `run_id` from the first successful add so a caller can bulk-add
-    into a fresh run in one call (pass `run_id=""` or omit it): the first
-    element creates the run via `op_add_claim`'s own auto-create path, and
-    every subsequent element reuses that run_id. A malformed element is
-    recorded in `errors` and does NOT abort the batch -- one bad element
-    among N valid ones must not drop the rest.
+    Requires an explicit, non-empty `run_id` obtained from `start_run` --
+    rejects the WHOLE batch up front (writes nothing, does not iterate) if
+    `run_id` is empty or omitted, symmetric with `op_add_claim`'s own
+    rejection. This closes the silent-fork seam for batch adds the same way
+    it's closed for single adds: no auto-created run on a missing run_id. A
+    malformed element is recorded in `errors` and does NOT abort the batch --
+    one bad element among N valid ones must not drop the rest.
     """
     claims = data.get("claims")
     if not isinstance(claims, list) or not claims:
@@ -758,7 +778,14 @@ def op_add_claims(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
             "message": "claims must be a non-empty array",
         }
 
-    run_id = data.get("run_id") or ""
+    run_id = data.get("run_id")
+    if not run_id:
+        return {
+            "ok": False,
+            "error": "invalid_input",
+            "message": "run_id is required",
+        }
+
     results: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     added = 0
@@ -786,7 +813,6 @@ def op_add_claims(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
             )
             continue
 
-        run_id = result["run_id"]
         results.append({"claim_id": result["claim_id"], "was_new": result["was_new"]})
         if result["was_new"]:
             added += 1
@@ -800,6 +826,63 @@ def op_add_claims(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
         "added": added,
         "updated": updated,
         "errors": errors,
+    }
+
+
+def op_list_runs(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
+    """Enumerate runs, surfacing STRANDED runs -- claims harvested but not fully gated.
+
+    Read-only: takes no run_id, never writes, never raises on a missing/empty
+    confinement root (returns `ok: True` with `runs: []`). A run is `stranded`
+    when it has at least one claim and at least one of those claims is still
+    `PENDING` (no verdict recorded) -- i.e. claims exist but the run was never
+    driven through to a complete gate. Pass `stranded_only: true` to filter the
+    returned list to just those runs; `stranded_count` always reflects the true
+    total across ALL runs regardless of the filter.
+    """
+    stranded_only = bool(data.get("stranded_only", False))
+
+    summaries: list[dict[str, Any]] = []
+    for run_id in store.list_run_ids():
+        run_record = store.load(run_id)
+        if run_record is None:
+            continue
+
+        claims = run_record.get("claims", [])
+        total_claims = len(claims)
+        pending = sum(1 for c in claims if c.get("aggregate") == "PENDING")
+        verified = total_claims - pending
+        stranded = total_claims > 0 and pending > 0
+        gates = run_record.get("gates") or []
+
+        summaries.append(
+            {
+                "run_id": run_id,
+                "created_at": run_record.get("created_at"),
+                "claims": total_claims,
+                "pending": pending,
+                "verified": verified,
+                "stranded": stranded,
+                "gate_policy": run_record.get("gate_policy"),
+                "gated": len(gates) > 0,
+                "gate_count": len(gates),
+                "last_verdict": gates[-1]["verdict"] if gates else None,
+                "last_gate_at": gates[-1]["at"] if gates else None,
+            }
+        )
+
+    stranded_count = sum(1 for s in summaries if s["stranded"])
+
+    if stranded_only:
+        summaries = [s for s in summaries if s["stranded"]]
+
+    summaries.sort(key=lambda s: (s.get("created_at") or "", s["run_id"]))
+
+    return {
+        "ok": True,
+        "runs": summaries,
+        "count": len(summaries),
+        "stranded_count": stranded_count,
     }
 
 
@@ -831,6 +914,7 @@ def op_report(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
         "run_id": run_id,
         "verdict": gate_result["verdict"],
         "blocking_claims": gate_result["blocking_claims"],
+        "blocking_summary": gate_result["blocking_summary"],
         "indeterminate_reasons": gate_result["indeterminate_reasons"],
         "coverage": gate_result["coverage"],
         "matrix": matrix_result["content"],
@@ -853,6 +937,7 @@ HANDLERS = {
     "start_run": op_start_run,
     "add_claims": op_add_claims,
     "report": op_report,
+    "list_runs": op_list_runs,
 }
 
 

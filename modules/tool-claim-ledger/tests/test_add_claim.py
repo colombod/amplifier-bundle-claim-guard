@@ -6,11 +6,17 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from amplifier_module_tool_claim_ledger.ops import op_add_claim, op_record_verdict
+from amplifier_module_tool_claim_ledger.ops import (
+    op_add_claim,
+    op_record_verdict,
+    op_start_run,
+)
 from amplifier_module_tool_claim_ledger.store import LedgerStore
 
 
-def test_first_add_claim_derives_a_run_id(store: LedgerStore) -> None:
+def test_add_claim_with_empty_run_id_is_rejected(store: LedgerStore) -> None:
+    """The silent-fork seam is closed: add_claim requires an explicit,
+    non-empty run_id obtained from start_run -- it no longer derives one."""
     result = op_add_claim(
         store,
         {
@@ -21,18 +27,37 @@ def test_first_add_claim_derives_a_run_id(store: LedgerStore) -> None:
         },
     )
 
+    assert result["ok"] is False
+    assert result["error"] == "invalid_input"
+    assert store.list_run_ids() == []
+
+
+def test_add_claim_into_a_started_run_succeeds(store: LedgerStore) -> None:
+    run_id = op_start_run(store, {})["run_id"]
+
+    result = op_add_claim(
+        store,
+        {
+            "run_id": run_id,
+            "text": "returns sorted output",
+            "type": "correspondence",
+            "source": "pr-body",
+        },
+    )
+
     assert result["ok"] is True
-    assert result["run_id"].startswith("run_")
+    assert result["run_id"] == run_id
     assert result["was_new"] is True
 
 
 def test_reword_stable_readd_is_idempotent_and_preserves_verdicts(
     store: LedgerStore,
 ) -> None:
+    run_id = op_start_run(store, {})["run_id"]
     first = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id,
             "text": "A degraded server will not corrupt data.",
             "type": "safety",
             "source": "docstring:registry.py:88",
@@ -80,10 +105,11 @@ def test_probe_eligibility_derived_from_type(store: LedgerStore) -> None:
     not_eligible_types = ["correspondence", "coverage"]
 
     for claim_type in eligible_types:
+        run_id = op_start_run(store, {})["run_id"]
         result = op_add_claim(
             store,
             {
-                "run_id": "",
+                "run_id": run_id,
                 "text": f"claim for {claim_type}",
                 "type": claim_type,
                 "source": "pr-body",
@@ -97,10 +123,11 @@ def test_probe_eligibility_derived_from_type(store: LedgerStore) -> None:
         assert claim["probe_eligibility"] == "eligible"
 
     for claim_type in not_eligible_types:
+        run_id = op_start_run(store, {})["run_id"]
         result = op_add_claim(
             store,
             {
-                "run_id": "",
+                "run_id": run_id,
                 "text": f"claim for {claim_type}",
                 "type": claim_type,
                 "source": "pr-body",
@@ -120,10 +147,11 @@ def test_genuine_hash_collision_gets_disambiguated_never_silently_merged(
     """Force a collision by making compute_claim_id return the same base id for two
     genuinely different claims (different text/type/source identity triples). The
     store must never silently merge them -- it must append a -2 disambiguator."""
+    run_id_for_first = op_start_run(store, {})["run_id"]
     added_first = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id_for_first,
             "text": "claim one about caching",
             "type": "correspondence",
             "source": "docstring:cache.py:10",
@@ -158,10 +186,11 @@ def test_genuine_hash_collision_gets_disambiguated_never_silently_merged(
 
 
 def test_third_genuine_collision_gets_dash_three(store: LedgerStore) -> None:
+    run_id_for_first = op_start_run(store, {})["run_id"]
     added_first = op_add_claim(
         store,
         {
-            "run_id": "",
+            "run_id": run_id_for_first,
             "text": "claim one",
             "type": "correspondence",
             "source": "docstring:a.py:1",
