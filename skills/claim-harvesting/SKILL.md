@@ -60,7 +60,7 @@ Discard prose that asserts nothing testable ("cleaned up", "improved readability
 > meaning-critical words you keep here are exactly what it preserves.
 
 > **KI-1 path (a) — the prompt prong carries reproducibility alone.** The `temperature: 0` knob is
-> measured INERT on the shipped Opus-4.7+ harvest routing (KNOWN_ISSUES.md KI-1), so determinism
+> measured INERT on the shipped Opus-4.7+ harvest routing (see `docs/EVALUATION.md` §9), so determinism
 > cannot lean on sampling. The two rules below are therefore **hard and mechanical, not guidance**:
 > a required *grid* fixes the claim SET (count + which claims), and a rigid *template* fixes each
 > claim's exact TEXT and TYPE. Same changeset → same grid → same templated claims → same `claim_id`s.

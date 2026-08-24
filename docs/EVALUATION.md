@@ -256,8 +256,7 @@ faithful in-process models of the real mechanisms, **not** live-server probes.
 After §8.2–§8.3, all three loop stages (`probe-designer` → `pen-tester` → `regression-graduator`) and
 both outcome branches (FALSIFIED→REFUTED, SURVIVED→graduated) were exercised end-to-end, leaving **one**
 residual: **full-fidelity live probes** — the same mechanism against a *real* Neo4j rather than a
-faithful in-process model. That residual is now **discharged** in §8.4 below. See `KNOWN_ISSUES.md`
-(KI-2, now CLOSED).
+faithful in-process model. That residual is now **discharged** in §8.4 below.
 
 ### 8.4 Live-Neo4j fidelity probe (residual discharged) — `claim_gate-jf6`
 
@@ -327,7 +326,7 @@ worded differently (**phrasing** variance). Phrasing variance is the worse of th
 stable `claim_id` (design finding F-9) is a hash of normalized claim text + type + source, so a
 reworded restatement of the *same* claim hashes to a *different* id, defeating run-to-run matrix
 diffing. The top-line verdict and the B-1…B-4 catch stayed stable throughout; only the detailed
-matrix was non-reproducible. See `KNOWN_ISSUES.md` (KI-1).
+matrix was non-reproducible.
 
 ### 9.2 The two-part fix (what the metric measures)
 
@@ -513,9 +512,6 @@ documented, not hidden.
   tightened `@2a97cb7`); concern-category reproducibility **0.933**, clearing the 0.8 primary gate.
 - **Guaranteed:** the verdict + blocker catch (PRIMARY, met in acceptance) and concern-type overlap
   (SECONDARY, harness-gated, met). **Not guaranteed:** exact matrix diffing (accepted residual).
-
-See `KNOWN_ISSUES.md` (KI-1) for the closed-issue summary and the `claim_gate-wd7` (path a, measured) /
-`claim_gate-0ut` (path c, this closure) references.
 
 ## 10. At-HEAD re-validation (`402293f`) — gate still BLOCKs, B-1…B-4 caught after the harvester rewrite
 
