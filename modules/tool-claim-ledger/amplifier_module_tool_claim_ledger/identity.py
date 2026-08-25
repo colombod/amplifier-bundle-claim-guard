@@ -6,7 +6,7 @@ Deliberately excludes `inferred`, `basis`, `quote`, line numbers, and the run --
 keeps its identity across re-runs of an evolving PR, and across explicit<->implicit
 reclassification. See docs/tool-claim-ledger-contract.md "Stable claim IDs across runs".
 
-`normalize_text` (KI-1 hardening, design/ki1-determinism-spec.md §2): a claim's identity
+`normalize_text`: a claim's identity
 must be reword-stable against trivial rewording (case, unicode, punctuation, articles,
 contractions, identifier-case, text-embedded file:line drift) while never over-collapsing
 two genuinely distinct claims into one id. Over-collapse is the #1 risk (spec R-1):
@@ -213,7 +213,7 @@ def _canonicalize_prose(text: str) -> str:
 def normalize_text(text: str) -> str:
     """Canonicalize claim text for stable identity (F-9).
 
-    Pipeline (design/ki1-determinism-spec.md §2.1):
+    Pipeline:
     1. Unicode NFKC + typographic quote folding (whole string).
     2. Segment into code-spans (preserved atomically, casefolded, line-drift
        stable) and prose-spans (aggressively canonicalized: case, punctuation,

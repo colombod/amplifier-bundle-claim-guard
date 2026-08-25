@@ -67,7 +67,7 @@ Keep especially:
 **Load the `claim-harvesting` skill and obey its "claim contract" section verbatim.** It is the
 single shared source of truth, co-designed with the ledger's id-hash, so the *same* changeset
 decomposes and phrases the *same* way every run. This is not guidance — it is the mechanism that
-makes the claim matrix reproducible (KI-1 path (a); `temperature: 0` is inert on the shipped stack,
+makes the claim matrix reproducible (the prompt prong; `temperature: 0` is inert on the shipped stack,
 so the prompt prong carries determinism alone). Apply both rules to **every** claim:
 
 1. **GRANULARITY — build the (mechanism × property) grid FIRST**, as an explicit step before any

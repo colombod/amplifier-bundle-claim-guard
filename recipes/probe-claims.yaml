@@ -15,7 +15,7 @@ tags: ["claim-guard", "probe", "dynamic", "pen-test", "dtu", "phase-2", "staged"
 # agents, which record via record_probe / graduate_test / defer_claim). This
 # recipe is an OPTIONAL automation for `recipes`-tool users; it is NOT a
 # prerequisite and NOT the advertised default. Prefer the skill unless you have a
-# specific reason to run the pipeline. (Decision: wt_cg_tuning-gvs.)
+# specific reason to run the pipeline.
 # ------------------------------------------------------------------------------
 
 # --- TRUST BOUNDARY -----------------------------------------------------------
@@ -48,8 +48,8 @@ tags: ["claim-guard", "probe", "dynamic", "pen-test", "dtu", "phase-2", "staged"
 #          unprobed keeps adverse_state_test.exists=false and still trips the gate -- deferred != passed.
 #   ARTIFACTS (on disk, STRUCTURALLY scoped -- probe-designer/pen-tester/regression-graduator each mount
 #   tool-filesystem with allowed_write_paths=[".claim-guard"], so a write to the source tree is REFUSED
-#   at the tool layer, deny-by-default and traversal-safe, regardless of instruction (design F-7 closed,
-#   claim_gate-6wq). They can only write under the run dir below:
+#   at the tool layer, deny-by-default and traversal-safe, regardless of instruction. They can only
+#   write under the run dir below:
 #          .claim-guard/<run_id>/probes/         probe specs + executable probes + captured output
 #          .claim-guard/<run_id>/new-defects/    repros for empirically-falsified claims
 #          .claim-guard/<run_id>/proposed-tests/ graduated candidate standing tests (human commits them)
@@ -61,7 +61,7 @@ tags: ["claim-guard", "probe", "dynamic", "pen-test", "dtu", "phase-2", "staged"
 # aggregate; `defer_claim` marks an eligible claim `deferred` (still trips the gate -- deferred != passed);
 # `graduate_test`, given red-before/green-after/deterministic-3x/asserts-property, records a standing test
 # AND sets adverse_state_test.exists=true (the only path besides record_verdict that clears the safety
-# limb). Exercised end-to-end in KI-2 (claim_gate-zot): a real pass set coverage.probed=3 and graduated a
+# limb). Exercised end-to-end: a real pass set coverage.probed=3 and graduated a
 # surviving probe's standing test. The load-bearing gate signal (adverse_state_test) is also settable via
 # record_verdict for an empirically-refuted claim.
 # ------------------------------------------------------------------------------

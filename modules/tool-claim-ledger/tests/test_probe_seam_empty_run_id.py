@@ -76,7 +76,7 @@ def test_claim_meant_for_open_run_must_not_fork_on_empty_run_id(
     The STRONGER property -- the claim actually landing on run_a without the
     caller repeating the run_id -- would require session/run state (routing an
     empty run_id to "the currently-open run"). That is a separate, larger item
-    (wt_cg_tuning e9n: run_id <-> item_id / session binding) and is explicitly
+    (run_id <-> item_id / session binding) and is explicitly
     out of scope here; the deliverable here is strictly "reject, never silently
     fork."
     """

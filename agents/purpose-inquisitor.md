@@ -84,7 +84,7 @@ Worked example (the canonical one):
 
 **Load the `claim-harvesting` skill and obey its "claim contract" section verbatim.** You, the
 `claim-harvester`, and the ledger's id-hash are co-designed against it, so the *same* implicit claim
-decomposes and phrases the *same* way every run (KI-1 path (a); `temperature: 0` is inert on the
+decomposes and phrases the *same* way every run (the prompt prong; `temperature: 0` is inert on the
 shipped stack, so the prompt prong carries determinism). Record the claims you *infer* by exactly the
 same two hard rules the explicit harvester uses:
 

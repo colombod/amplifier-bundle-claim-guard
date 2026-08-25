@@ -55,11 +55,11 @@ Discard prose that asserts nothing testable ("cleaned up", "improved readability
 > This is the **single contract** the `claim-harvester` and `purpose-inquisitor` both follow, and it
 > is co-designed with the ledger's `normalize_text` (the stable-`claim_id` hash, F-9). It exists so
 > the *same* underlying claim decomposes and phrases the *same* way every run — otherwise it hashes
-> to a different id and the run-to-run matrix diff breaks (KI-1). **Do not let this drift from the
+> to a different id and the run-to-run matrix diff breaks. **Do not let this drift from the
 > normalizer:** the boilerplate you omit here is exactly what the normalizer strips; the
 > meaning-critical words you keep here are exactly what it preserves.
 
-> **KI-1 path (a) — the prompt prong carries reproducibility alone.** The `temperature: 0` knob is
+> **The prompt prong carries reproducibility alone.** The `temperature: 0` knob is
 > measured INERT on the shipped Opus-4.7+ harvest routing (see `docs/EVALUATION.md` §9), so determinism
 > cannot lean on sampling. The two rules below are therefore **hard and mechanical, not guidance**:
 > a required *grid* fixes the claim SET (count + which claims), and a rigid *template* fixes each

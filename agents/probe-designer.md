@@ -24,7 +24,7 @@ model_role: [reasoning, general]
 tools:
   - module: tool-filesystem
     source: git+https://github.com/microsoft/amplifier-module-tool-filesystem@main
-    # F-7 structural write-scoping (KI-4): this dynamic agent writes/executes probe
+    # structural write-scoping: this dynamic agent writes/executes probe
     # material. Confine its writes at the TOOL layer to the run sandbox — NOT the source
     # tree under review. tool-filesystem enforces allowed_write_paths deny-by-default,
     # traversal-safe (`../` is resolved before the containment check), for both write_file

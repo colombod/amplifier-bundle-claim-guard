@@ -322,8 +322,7 @@ claim with `Adverse-state test = yes` but **`Verdict = PENDING`**. That looks wr
 never fabricates a lens verdict**. A standing test proves the adverse-state property holds; it does not
 constitute a lens having *ruled on the claim*. The tool refuses to manufacture a `CONFIRMED` nobody
 produced. So a good Phase-2 result reads as *"limb 2 cleared, verdict still owed"* — to move that claim
-to `CONFIRMED`, a lens must record an actual verdict. (Worked example: `clm_c39773b8` in
-`docs/EVALUATION.md` §8.3.2.)
+to `CONFIRMED`, a lens must record an actual verdict.
 
 ---
 

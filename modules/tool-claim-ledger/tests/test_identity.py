@@ -1,7 +1,6 @@
 """Stable claim IDs (F-9): reword-stable, type-sensitive, run-independent.
 
-KI-1 hardening (design/ki1-determinism-spec.md §2.5): the invariants below are
-asserted directly, per the spec:
+The invariants below are asserted directly:
   1. idempotent
   2. reword-stable (must collapse)
   3. type-sensitive (must NOT collapse)
