@@ -1,6 +1,6 @@
-"""Recipe/docs <-> ledger-op drift guard (KI #3 / claim_gate-bxq).
+"""Recipe/docs <-> ledger-op drift guard.
 
-KI-3 was a stale claim in probe-claims.yaml that named ledger ops as "missing" when
+The failure this guards against: a stale claim in probe-claims.yaml that named ledger ops as "missing" when
 they existed -- a claim<->code correspondence failure inside the bundle's own prose,
 undetected because nothing bound recipe/doc text to the ledger's real op surface (the
 R-6 guard only binds harvester vocabulary to identity.py).
@@ -78,7 +78,7 @@ def test_every_referenced_op_exists() -> None:
 def test_guard_would_catch_a_renamed_op() -> None:
     """Negative proof: prose naming a non-existent op is detectable.
 
-    This mirrors the exact KI-3 failure mode (prose names ops the module lacks) and
+    This mirrors that failure mode (prose names ops the module lacks) and
     proves the mechanism bites, using a synthetic vocabulary rather than editing a real
     file.
     """
@@ -101,7 +101,7 @@ def test_core_ops_are_actually_referenced_somewhere() -> None:
     """Sanity: the ops the Phase-2 recipe/docs are supposed to describe are present in
     the prose -- so this guard is exercising real references, not vacuously passing.
 
-    (Precisely the ops KI-3's stale comment wrongly called 'missing'.)
+    (Precisely the ops the stale comment wrongly called 'missing'.)
     """
     all_prose = "\n".join(
         p.read_text(encoding="utf-8") for p in _PROSE_FILES if p.is_file()

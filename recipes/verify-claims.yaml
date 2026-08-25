@@ -13,7 +13,7 @@ tags: ["claim-guard", "verification", "gate", "adversarial", "review", "staged",
 # gate run is concierge-hand-driven; this recipe is an OPTIONAL automation for
 # `recipes`-tool users who want the flat, inspectable Phase-1 pipeline. It is NOT
 # a prerequisite and NOT the advertised default. Prefer the skill unless you have
-# a specific reason to run the pipeline. (Decision: wt_cg_tuning-gvs.)
+# a specific reason to run the pipeline.
 # ------------------------------------------------------------------------------
 
 # --- TRUST BOUNDARY -----------------------------------------------------------
@@ -83,8 +83,8 @@ stages:
       # Cold: references only the changeset + docs, never purpose-inquisitor's output.
       - id: "harvest-explicit"
         agent: "claim-guard:claim-harvester"
-        # KI-1 determinism pin (spec §5). Intended: temperature: 0 to reduce EXTRACTION variance.
-        # MEASURED INERT ON THE CURRENT HARVEST ROUTING (KI-1 §9.4): harvest routes to Claude
+        # Determinism pin. Intended: temperature: 0 to reduce EXTRACTION variance.
+        # MEASURED INERT ON THE CURRENT HARVEST ROUTING: harvest routes to Claude
         # Opus >= 4.7 (opus-4-8/opus-5), and the anthropic provider does NOT send a temperature for
         # Opus >= 4.7 — it is silently ignored. So on any Opus-4.7+/Sonnet-5 deployment this pin does
         # NOTHING and does NOT deliver determinism; only the prompt prong (canonical claim-form +
@@ -125,10 +125,10 @@ stages:
       # Cold: references only the changeset + issue/why + optional council verdict.
       - id: "harvest-implicit"
         agent: "claim-guard:purpose-inquisitor"
-        # KI-1 determinism pin (spec §5). Intended: temperature: 0 for phrasing reproducibility on an
+        # Determinism pin. Intended: temperature: 0 for phrasing reproducibility on an
         # INFERENCE task (with the R-3/F-1 caveat that temp 0 must not blunt implicit-claim discovery —
         # the agent body is told reproducibility is about HOW claims are phrased, never finding fewer).
-        # MEASURED INERT ON THE CURRENT HARVEST ROUTING (KI-1 §9.4): harvest routes to Claude Opus >=
+        # MEASURED INERT ON THE CURRENT HARVEST ROUTING: harvest routes to Claude Opus >=
         # 4.7, and the anthropic provider does NOT send a temperature for Opus >= 4.7 — silently
         # ignored. So this pin currently does NOTHING; only the prompt prong is active, and the shipped
         # config still FAILED the reproducibility bar (Jaccard 0.0075 / id-stability 0.0395, N=5

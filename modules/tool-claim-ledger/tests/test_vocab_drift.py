@@ -58,7 +58,7 @@ CONTRACT_BOUND_TOKENS = frozenset({"at", "most", "least", "exactly", "under"})
 # 1:1 below) that compose those sentence-starts. "the system will..." is a
 # case where the composition is *deliberately* incomplete: "the system" is a
 # stripped filler phrase, but "will" is a never-touched token (identity.py
-# keeps "will" specifically because the KI-1 worked example --
+# keeps "will" specifically because the worked example --
 # "won't corrupt data" -> "will not corrupt data" -- requires it to survive
 # contraction expansion). So "the system will X" alone does not fully collapse
 # to "X"; only the "the system" portion does. That is intentional, documented
@@ -202,7 +202,7 @@ def test_claim_and_its_negation_stay_distinct() -> None:
 
 
 # ===========================================================================
-# KI-1 PATH (a) -- the rigid claim template.
+# The rigid claim template.
 #
 # MIRROR of skills/claim-harvesting/SKILL.md "The claim contract" ->
 # "Rule 2 -- PHRASING: the rigid claim template". The prompt prong now carries

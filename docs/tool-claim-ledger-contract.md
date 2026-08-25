@@ -361,7 +361,7 @@ to clear a REFUTED without new evidence."
 
 `claim_id = "clm_" + sha1( normalize(text) + "|" + type + "|" + repo_relpath_of(source) )[:8]`
 
-- `normalize(text)` (KI-1 hardening, design/ki1-determinism-spec.md §2): Unicode NFKC + typographic
+- `normalize(text)`: Unicode NFKC + typographic
   quote folding, then segmented into **code-spans** (backtick-delimited, `file.ext[:line]`,
   `snake_case`/`camelCase` identifiers, numbers — preserved atomically, casefolded, with a
   text-embedded `file:line` trailing line number stripped) and **prose-spans** (casefolded,

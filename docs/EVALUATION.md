@@ -3,20 +3,19 @@
 This document describes **how claim-guard was accepted**: the methodology for proving the gate
 catches real, known-good defects — at a level another engineer can reproduce on their own PR.
 
-It deliberately contains **no raw run output, no absolute machine paths, and no provider data**.
-The gate is non-deterministic at the LLM layer (the deterministic part is only the `claim_ledger`
-aggregation + gate rule), so the artifact that matters is the **methodology and the pass/fail
-bar**, not a transcript. Raw runs live outside the repo (see *Where the runs live*) and are not
-committed.
+It deliberately contains **no raw run output, no machine-specific paths, and no provider data**. The
+gate is non-deterministic at the LLM layer (the deterministic part is only the `claim_ledger`
+aggregation + gate rule), so the artifact that matters is the **methodology and the pass/fail bar**,
+not a transcript. Raw runs live outside the repo (see §9) and are not committed.
 
 ---
 
 ## 1. The acceptance question
 
-> Given a real change that a human reviewer later found serious blockers in, does the gate —
-> run against the **pre-remediation** state of that change — independently flag those same
-> blockers as **REFUTED** (blocking), with `file:line` evidence? And as a **control**, do those
-> same claims flip to **CONFIRMED** when the gate is run against the **fixed** head?
+> Given a real change that a human reviewer later found serious blockers in, does the gate — run
+> against the **pre-remediation** state of that change — independently flag those same blockers as
+> **REFUTED** (blocking), with `file:line` evidence? And as a **control**, do those same claims flip
+> to **CONFIRMED** when the gate is run against the **fixed** head?
 
 This is a two-sided test on purpose. Catching the blockers on the adverse state shows the gate has
 **power** (it finds real defects). The control on the fixed head shows it has **specificity** (it
@@ -27,11 +26,11 @@ promise.
 
 Any merged PR that (a) shipped real correctness/safety work and (b) had **known blockers** found
 after the fact — by a human reviewer, an incident, or a follow-up fix — is a usable subject. The
-follow-up fixes are the answer key: each remediation commit corresponds to a blocker the gate
-should have caught on the pre-fix state.
+follow-up fixes are the answer key: each remediation commit corresponds to a blocker the gate should
+have caught on the pre-fix state.
 
-The acceptance run used a context-intelligence server PR with **four** documented blockers
-(referred to as B-1…B-4), each later fixed by a specific commit. Summarised generically:
+The acceptance run used a real server PR with **four** documented blockers (referred to below as
+B-1…B-4), each later fixed by a specific commit:
 
 | Blocker | Class | Shape |
 |---|---|---|
@@ -54,29 +53,29 @@ answer key (the remediation commits) is **excluded** from what the gate sees.
    lower-bound validator.) This step is easy to get wrong — a head chosen one commit too late may
    already contain a fix and silently leak the answer.
 3. **Exclude the remediation commits** from the changeset range. The gate is fed `BASE..ADVERSE_HEAD`
-   only — never the range that contains the fixes or their commit messages (those messages would
-   hand the gate the answer).
+   only — never the range that contains the fixes or their commit messages (those messages would hand
+   the gate the answer).
 
 ## 4. Inputs fed to the gate
 
 Scope everything to `BASE..ADVERSE_HEAD`:
 
-| Input | What it is | How to produce it (generic) |
+| Input | What it is | How to produce it |
 |---|---|---|
 | worktree | a detached checkout of the shipped source **at `ADVERSE_HEAD`** — the code actually under review | `git worktree add <worktree_dir> <ADVERSE_HEAD>` |
 | diff | the changeset under review | `git diff <BASE>..<ADVERSE_HEAD> > <diff_file>` |
 | commit messages | a primary claim source (NO remediation messages) | `git log <BASE>..<ADVERSE_HEAD> > <commits_file>` |
 
-Optionally, a prior **design-council verdict** for the change can be fed in as an extra claim
-source (each addressed `FAIL`/`CONCERN` becomes a claim to verify against the shipped code).
+Optionally, a prior **design-council verdict** for the change can be fed in as an extra claim source
+(each addressed `FAIL`/`CONCERN` becomes a claim to verify against the shipped code).
 
 ## 5. Running the gate
 
 Point the gate at the worktree as the `repo_path`, with the diff and commit messages as the claim
 sources, under `gate_policy: blocking-with-waiver`. Either drive it via the `/claim-guard` concierge
-skill, or run the `verify-claims` recipe (full install), or — under the lightweight `--app` install
-— ask the session to orchestrate the lenses and aggregate via `claim_ledger` (see the README
-*Usage* section). All `file:line` anchors resolve into the worktree.
+skill, or run the `verify-claims` recipe (full install), or — under the lightweight `--app` install —
+ask the session to orchestrate the lenses and aggregate via `claim_ledger` (see the README *Usage*
+section). All `file:line` anchors resolve into the worktree.
 
 Repeat the run a few times (the acceptance used several independent repetitions) — the LLM layer is
 non-deterministic, so the bar must be met **reliably**, not once.
@@ -93,296 +92,72 @@ non-deterministic, so the bar must be met **reliably**, not once.
 **Control run (specificity):**
 - Run the same gate against `FIXED_HEAD` (a worktree at the fixed head; diff/commits scoped to
   include the fixes).
-- The claims corresponding to B-1…B-4 flip to **CONFIRMED** (each now carrying the `file:line` of
-  the code that keeps the promise). Claims that remain genuinely untestable statically may stay
+- The claims corresponding to B-1…B-4 flip to **CONFIRMED** (each now carrying the `file:line` of the
+  code that keeps the promise). Claims that remain genuinely untestable statically may stay
   `UNTESTABLE` — that is honest, not a failure — but the fixed defects must no longer read REFUTED.
 
-The acceptance is met when the adverse run **reliably** catches all four blockers and the control
-run **reliably** clears the fixed ones. (Extra REFUTED claims beyond B-1…B-4 are expected and
-welcome — a sharper gate finds more than the human did; they are reported, not penalised.)
+The acceptance is met when the adverse run **reliably** catches all four blockers and the control run
+**reliably** clears the fixed ones. (Extra REFUTED claims beyond B-1…B-4 are expected and welcome — a
+sharper gate finds more than the human did; they are reported, not penalised.)
 
 ## 7. Interpreting the result honestly
 
 - **The deterministic core is the verdict, not the finding.** `claim_ledger` computes worst-wins
   aggregation and the BLOCK/PASS/INDETERMINATE rule mechanically; the *findings* come from the LLM
-  lenses and vary run to run. Judge the gate on whether the **blocking findings reliably appear**,
-  not on byte-identical output.
+  lenses and vary run to run. Judge the gate on whether the **blocking findings reliably appear**, not
+  on byte-identical output.
 - **A BLOCK on the adverse state is only meaningful with the control.** Without the fixed-head
-  control, a gate that always blocks would "pass" trivially. The flip-to-CONFIRMED is what proves
-  the gate discriminates.
+  control, a gate that always blocks would "pass" trivially. The flip-to-CONFIRMED is what proves the
+  gate discriminates.
 - **Evidence is the currency.** A REFUTED without a `file:line` anchor and a counter-case does not
-  count — the ledger rejects unanchored CONFIRMED/REFUTED verdicts, and the acceptance holds the
-  human to the same bar when reading the matrix.
+  count — the ledger rejects unanchored CONFIRMED/REFUTED verdicts, and the acceptance holds the human
+  to the same bar when reading the matrix.
 
-## 8. Phase 2 validation (DTU)
+## 8. Results (summary)
 
-**Rule: bundles are validated in a Digital Twin Universe, never by a local host install.** The
-dynamic bench pulls in a Digital-Twin dependency surface (parallax-discovery, digital-twin-universe,
-amplifier-tester) and the `pen-tester` stands real adverse states up inside a twin — so validation
-runs where the bundle would actually run, not against the developer's host, and leaves the host
-untouched.
+**Static gate — power and specificity.** On the four-blocker subject, the adverse run reliably
+returned **BLOCK** and caught B-1…B-4 every time, each with a `file:line` anchor and a counter-case;
+the fixed-head control cleared the fixed defects. This was re-run against current `HEAD` after a
+harvester rewrite and still holds — the gate's core catch did not regress.
 
-### 8.1 What was validated in the twin (compose / parse / tool round-trip)
+**Dynamic pen-testing (Phase 2), validated in a Digital Twin.** The behavioural loop
+(`probe-designer` → `pen-tester` → `regression-graduator`) was exercised end-to-end across **both**
+outcomes:
+- **A probe that made the forbidden violation happen** — it drove the adverse state (a degraded write
+  path that could duplicate records under concurrency), observed the specific violation (not
+  liveness), and recorded a **REFUTED** verdict with evidence. Correctly *not* graduated: a falsified
+  probe is a new-defect finding, not a survivor.
+- **A probe that survived and was graduated** — a cap claim survived its probe and was promoted into a
+  standing regression test that goes red on the violation and green on the fix, runs deterministically,
+  and asserts the property (not a literal). It is a real, committable pytest, and it clears the gate's
+  "adverse-state test exists" requirement for that claim.
 
-Four checks, all at the **composition and interface** level — proving the Phase-2 surface loads,
-parses, and that the ledger's Phase-2 ops round-trip. **Result: 4/4 PASS.**
+A confirming run against a **real database** (rather than an in-process model of it) reproduced the
+model's numbers, showing the lighter in-process path was a faithful proxy of the real race — not a
+modelling artifact.
 
-| # | Check | What it proves |
-|---|---|---|
-| 1 | **Root bundle composes** (`bundle.md`) | the 6 static lenses + the `claim_ledger` tool activate from the `@main` git source with **no module-activation failure** — the static gate is intact and installable as shipped |
-| 2 | **Phase-2 standalone composes** (`bundles/with-probing.yaml`) | the 3 Phase-2 agents (`probe-designer`, `pen-tester`, `regression-graduator`) resolve, and the parallax-discovery / digital-twin-universe / amplifier-tester dependency bench resolves alongside them |
-| 3 | **Both recipes parse** (`verify-claims`, `probe-claims`) | the static and dynamic pipelines are well-formed and loadable |
-| 4 | **`claim_ledger` round-trips** | `add_claim → list_claims → aggregate` works end-to-end, with the `probed` / `deferred` coverage fields live (i.e. the Phase-2 `record_probe` / `defer_claim` / `graduate_test` ops are wired and the coverage counters they feed are populated) |
+**Harvest reproducibility.** Repeated harvests on the *same* change vary in **which** claims get
+selected and **how** they are worded, so the exact claim list (and count) is **not** byte-reproducible
+run-to-run. What *is* reproducible is the **category of concern** each run surfaces. The committed
+harness (`scripts/harvest_stability.py`, §8.1) therefore gates on **concern-category overlap** plus a
+blocker guardrail, and treats exact-claim-list identity as an indicative diagnostic, not a guarantee.
+Trust the verdict and the blocker catch; treat the detailed claim list as indicative.
 
-This is a **composition/interface** acceptance, not a behavioural one. It establishes that Phase 2
-is loadable, parseable, and that its ledger seam works — the prerequisites for a behavioural run.
+### 8.1 Harvest-stability harness
 
-### 8.2 End-to-end probe run (one claim) — the behavioural loop actually executed
-
-The behavioural loop has now been run **end-to-end on one claim** in the twin
-(`claim-guard-dtu @7131dd2`, active bundle `claim-guard-with-probing`). This is a genuine behavioural
-result, not a composition check — with one honest caveat about adverse-state fidelity (§8.2.2).
-
-#### 8.2.1 What executed, and the outcome
-
-- **Input — consumed, did not re-harvest.** `probe-claims` consumed an **existing** `verify-claims`
-  ledger (`run_id t0run1`, **54 claims**) via the `run_id` seam. The static harvest was not re-run.
-- **Claim probed.** `clm_2a25c125` — *"a degraded server does not create a duplicate `Node`"*,
-  **type `safety`** — i.e. the core **B-1 corruption** claim.
-- **Loop stages that ran.** `probe-designer` produced the probe spec → `pen-tester` designed, built,
-  and **ran** the adverse-state experiment, observing for the **specific violation** (duplicate rows
-  = corruption), never liveness → the result was recorded structurally via `record_probe` /
-  `record_verdict`.
-- **Outcome — FALSIFIED → verdict `REFUTED`.** The probe made the forbidden violation happen, with a
-  **red-before / green-after control**:
-
-  | Adverse-state control | Result | Observation |
-  |---|---|---|
-  | **ADVERSE** — `:Node` uniqueness constraint DROPPED (the degraded window) | **25/25 rounds produced duplicates** | max `COUNT(*)` = **8**, **175 extra rows** |
-  | **CONTROL** — constraint present | **0/25 rounds** | max `COUNT(*)` = **1** |
-
-  8 barrier-synced concurrent workers × 25 rounds. Independently re-run **on the host**: identical
-  result (adverse 8 / control 1), deterministic, stdlib-only.
-- **Ledger effect.** `clm_2a25c125` `aggregate = REFUTED` with **`file:line` evidence** — the executed
-  probe script plus `neo4j_store.py:988-999` (the degraded window) and `neo4j_store.py:1287` (the
-  unconditional MERGE with no `schema_health` gate). Coverage **`probed = 1`** (no longer 0). **No
-  graduation** occurred — correct: a FALSIFIED probe is a *new-defect finding*, not a survivor to
-  graduate into a standing test.
-- **Artifacts** (uncommitted, outside the repo, on the host): `.amplifier/evaluation/claim-guard/ki2-probe/`
-  — `ledger.json`, `probes/clm_2a25c125.spec.md`, `probes/clm_2a25c125_probe.py`.
-
-#### 8.2.2 The honest caveat — an in-process MODEL, not a live Neo4j server
-
-The twin **has no nested container capability** (no `docker`, no `incus` binary), so the pen-tester
-took the **design-sanctioned lighter path**: a self-contained **stdlib-Python repro** that faithfully
-models the exact mechanism the claim rests on — a `MERGE` on `(node_id, workspace)` with the `:Node`
-uniqueness constraint dropped (the degraded window per `neo4j_store.py:988-999` and the unconditional
-MERGE at `:1287`). This is a **faithful in-process model of the real race, not a live degraded Neo4j
-server.** It demonstrably surfaced the real B-1 violation and its red-before/green-after control — but
-**full-fidelity confirmation against a real degraded Neo4j would require a host with nested
-Docker/Incus.** Do not overclaim this as a live-Neo4j probe.
-
-#### 8.2.3 Residuals after the first run (all three now closed — §8.3 and §8.4)
-
-The §8.2 run left three residuals; **all three are now closed**:
-
-- ~~**More than one claim**~~ — **DONE** (§8.3): `coverage.probed = 3` in ledger `t0run1`.
-- ~~**Graduation of a SURVIVING probe**~~ — **DONE** (§8.3): `graduate_test` ACCEPTED on `clm_c39773b8`.
-- ~~**Full-fidelity live probes**~~ — **DONE** (§8.4, `claim_gate-jf6`): the B-1 claim probed against a
-  **real Neo4j 5** with the constraint dropped, driving the verbatim production `_NODE_MERGE_CYPHER` —
-  **FALSIFIED**, reproducing the in-process numbers (a faithful proxy confirmed).
-
-### 8.3 Graduation capstone + multi-claim (residuals closed)
-
-A second run in the same twin (`claim-guard-dtu @9ed4d1b`, active bundle `claim-guard-with-probing`,
-still no nested containers → same design-sanctioned lighter path, in-process faithful models via
-`uv run --with pydantic`) closed two of the three §8.2.3 residuals. **Both Phase-2 outcome branches
-are now demonstrated end-to-end:** the §8.2 run showed **FALSIFIED → REFUTED** (new-defect finding);
-this run shows **SURVIVED → graduated into a standing test** (the "properly delivered claim").
-
-#### 8.3.1 The graduation capstone — `graduate_test` ACCEPTED
-
-- **Survivor claim.** `clm_c39773b8` — *"`reclaim_blobs` deletes at most `max_delete` blob files in
-  apply mode"*, **type `quantitative`** — grounded on the real **B-3** source asymmetry: adverse
-  `admin.py:653` `max_delete: int | None = None` (no validator) vs fixed `admin.py:678`
-  `max_delete: int | None = Field(default=None, ge=1)`.
-- **Graduation evidence** (real `uv run` execution — the four criteria `graduate_test` enforces):
-
-  | Criterion | Evidence |
-  |---|---|
-  | **RED-BEFORE** (adverse) | `max_delete=-1` accepted; `candidates[:-1]` deleted **9 of 10** (negative-slice blast radius — violation OCCURRED) |
-  | **GREEN-AFTER** (fixed) | `max_delete=-1` and `0` raise `ValidationError`/422 **before any `unlink`**; `deleted=0` (violation PREVENTED) |
-  | **DETERMINISTIC** | **3/3** identical runs |
-  | **ASSERTS-THE-PROPERTY** | asserts *"non-positive cap rejected AND `deleted_count <= min(cap, len)"* — the property, not a literal |
-
-- **`regression-graduator` → `claim_ledger graduate_test` → ACCEPTED.** All four criteria met (no
-  `graduation_criteria_unmet`). Ledger fields for `clm_c39773b8`: `probe.outcome = SURVIVED`;
-  `standing_test` set (`path .claim-guard/t0run1/probes/test_max_delete_cap_standing.py`,
-  `red_before=true`, `green_after=true`, `deterministic_runs=3`, `asserts_property=true`);
-  **`adverse_state_test.exists = TRUE`** — gate **limb 2 cleared** for this claim (the properly
-  delivered claim).
-- **Host re-run.** The graduated standing test was independently re-run on the host: **21 passed.**
-  It is a real, committable pytest.
-
-#### 8.3.2 Correctness nuance — the survivor's `aggregate` stays `PENDING` (honest, not a bug)
-
-Graduation clears **limb 2** (`adverse_state_test.exists=true`); it does **not** invent a lens
-verdict. `record_probe` / `graduate_test` deliberately **never fabricate a `CONFIRMED`** — so with no
-`correspondence-auditor` or `pen-tester` verdict recorded for `clm_c39773b8`, its `aggregate` stays
-**`PENDING`**. This is correct, honest behaviour: the standing test proves the adverse-state property
-holds, but a *verdict* still requires a lens to have ruled — the tool will not manufacture one.
-
-#### 8.3.3 Multi-claim fan-out — `coverage.probed = 3`
-
-Ledger `t0run1` now records **three** probed claims, spanning **both** outcome branches and the
-probe-only case:
-
-| Claim | Type | Outcome | Ledger effect |
-|---|---|---|---|
-| `clm_2a25c125` | safety | **FALSIFIED → REFUTED** (§8.2) | `aggregate=REFUTED` + `file:line`; new-defect finding |
-| `clm_c39773b8` | quantitative | **SURVIVED → graduated** | `standing_test` set; `adverse_state_test.exists=true`; `aggregate=PENDING` |
-| `clm_103eba07` | — | **SURVIVED** (probe only, no graduation) | probe recorded; not graduated |
-
-`coverage.probed = 3` (was 1 after §8.2). Same **in-process-model caveat** as §8.2.2 applies —
-faithful in-process models of the real mechanisms, **not** live-server probes.
-
-- **Artifacts** (uncommitted, outside the repo, on the host):
-  `.amplifier/evaluation/claim-guard/ki2-graduation/` — `ledger.json`,
-  `probes/clm_c39773b8.spec.md`, `probes/clm_c39773b8_probe.py`,
-  `probes/test_max_delete_cap_standing.py`, `probes/clm_103eba07_probe.py`.
-
-#### 8.3.4 What remained after §8.3 (now discharged in §8.4)
-
-After §8.2–§8.3, all three loop stages (`probe-designer` → `pen-tester` → `regression-graduator`) and
-both outcome branches (FALSIFIED→REFUTED, SURVIVED→graduated) were exercised end-to-end, leaving **one**
-residual: **full-fidelity live probes** — the same mechanism against a *real* Neo4j rather than a
-faithful in-process model. That residual is now **discharged** in §8.4 below.
-
-### 8.4 Live-Neo4j fidelity probe (residual discharged) — `claim_gate-jf6`
-
-The one residual from §8.3.4 — *"the same loop against a real degraded Neo4j"* — has now been run for
-real. The **B-1 corruption claim** (*"upsert_node preserves integrity"* / *"a degraded server does not
-create a duplicate `:Node`"*) was probed against a **live Neo4j 5 server**, not an in-process model.
-This closes the live-fidelity gap that was the whole point of the residual.
-
-#### 8.4.1 What executed, and the outcome
-
-- **Adverse state — a real degraded Neo4j.** A live **Neo4j 5** (`docker neo4j:5`) with the `:Node`
-  **uniqueness constraint DROPPED**, falling back to the non-unique `idx_node_universal` — i.e. exactly
-  the degraded window `neo4j_store.py:922` creates on a degraded boot. This is the real engine in the
-  real degraded configuration, not a stdlib model of it.
-- **Write path — the VERBATIM production query.** The probe ran the production
-  `_NODE_MERGE_CYPHER` copied verbatim from
-  `context_intelligence_server/neo4j_store.py @c324cbe` (`neo4j_store.py:125`) —
-  `MERGE (n:Node {node_id, workspace})` — driven **25 rounds × 8 concurrent workers** against the
-  **identical** `(node_id, workspace)` key. It observed for the **specific violation** (duplicate
-  `:Node` rows, counted via Cypher `COUNT`), never for liveness.
-- **Outcome — FALSIFIED on the real engine**, with a red-before/green-after control:
-
-  | Adverse-state control | Result | Observation |
-  |---|---|---|
-  | **ADVERSE** — `:Node` uniqueness constraint DROPPED (the degraded window) | **25/25 rounds produced duplicates** | max `COUNT(*)` = **8**, **165 extra duplicate `:Node` rows** |
-  | **CONTROL** — constraint present | **0/25 rounds** | max `COUNT(*)` = **1**, **0 extra rows** |
-
-#### 8.4.2 It reproduces the in-process result — the lighter path was a faithful proxy
-
-The live run's numbers (**adverse max `COUNT(*)` = 8 / control = 1**) **reproduce** the §8.2 in-process
-stdlib model's result (also adverse max 8 / control 1). This is the point of the residual: it confirms
-the design-sanctioned lighter path (§8.2.2) was a **faithful proxy of the real MERGE-without-constraint
-race, not an artifact** of the in-process modelling. The earlier caveat ("do not overclaim the model as
-a live-Neo4j probe") is now retired by an actual live-Neo4j probe that agrees with it.
-
-#### 8.4.3 Ledger effect
-
-Recorded to a ledger via `claim_ledger` (`run_id jf6-live-neo4j`):
-
-- claim `clm_759ae4c0`; `record_probe` `outcome = FALSIFIED`; `pen-tester` verdict **REFUTED** with
-  `file:line` evidence; `aggregate = REFUTED`; `coverage.probed = 1`.
-- **Artifacts** (uncommitted, outside the repo, on the host):
-  `.amplifier/evaluation/claim-guard/jf6-live/` — `live_probe.py`,
-  `.claim-guard/jf6-live-neo4j/ledger.json`.
-
-#### 8.4.4 Honest scope note
-
-This ran the **real production `MERGE` query against a real Neo4j directly** — the identity write path
-the claim actually rests on — rather than booting the full HTTP CI server and POSTing to `/events`. The
-fidelity gap **that mattered** (a real Neo4j `MERGE`-without-constraint race vs an *in-process model* of
-it) is **closed**. A full-HTTP-server-in-the-loop run would be an even heavier variant, but it exercises
-the *same* underlying mechanism the live probe just falsified — so it is a further-hardening option, not
-an open correctness gap.
-
-## 9. Harvest stability (KI-1)
-
-This section is the **acceptance measurement for KI-1** — harvester non-determinism. It is separate
-from the blocker-catch acceptance above (§1–§7, which measures *power* and *specificity*); this one
-measures **reproducibility of the claim set** run-to-run.
-
-### 9.1 What KI-1 was
-
-On repeated harvest runs against the **same** changeset, the two harvester agents produced
-**different claim counts** — observed **18 / 77 / 22 / 11** across four runs — because the change was
-decomposed into a different number of claims each run (**granularity** variance) and each claim was
-worded differently (**phrasing** variance). Phrasing variance is the worse of the two: the ledger's
-stable `claim_id` (design finding F-9) is a hash of normalized claim text + type + source, so a
-reworded restatement of the *same* claim hashes to a *different* id, defeating run-to-run matrix
-diffing. The top-line verdict and the B-1…B-4 catch stayed stable throughout; only the detailed
-matrix was non-reproducible.
-
-### 9.2 The two-part fix (what the metric measures)
-
-- **Code-level (`modules/tool-claim-ledger/.../identity.py`):** hardened `normalize_text` into a
-  canonical form (NFKC, code/prose segmentation with code-token preservation, casefold, a closed
-  contraction map, punctuation→space, a small closed filler set with a NEVER-STRIP guard for
-  negation/quantifiers/modals/numbers). It collapses trivial rewordings to one id **without**
-  over-collapsing distinct claims — proven by the identity unit suite (idempotence, reword-stable,
-  type-sensitive, and the R-1 minimal-pairs *distinct-claims-stay-distinct* tripwire).
-- **Prompt-level (both harvester agents + the shared `claim-harvesting` skill):** a single shared
-  **claim contract** — the atomicity rule (one load-bearing assertion per claim; split/merge
-  criteria; claim count = distinct mechanism × distinct forbidden-property) and a **canonical
-  claim-statement form** (subject–predicate, present tense, symbol-named, controlled vocabulary) that
-  the agents emit and the normalizer expects. Co-designed so they cannot drift.
-- **Determinism knob:** `temperature: 0` pinned on the two harvest steps of `verify-claims.yaml`
-  (intended as a variance *reducer*, never a guarantee). **Measured to be INERT on the shipped
-  stack** — see §9.4: the harvest routes to Claude Opus ≥ 4.7, and the anthropic provider does not
-  send a `temperature` for Opus ≥ 4.7 (it is silently ignored). So on any Opus-4.7+/Sonnet-5
-  deployment this prong does nothing, and **only the prompt prong is actually active.** The pin is
-  left in place because it is correct for a sampling-capable model, but it delivers no determinism on
-  the current routing.
-
-### 9.3 The metric + how to run it
-
-The harness is committed at **`scripts/harvest_stability.py`**. It does **not** run the harvesters
-itself (that is an LLM step, run in a DTU per §8's never-install-locally rule); it **consumes the
-`ledger.json` files** those repeat runs produced and scores their agreement. It **imports the real
-`identity.py`**, so its `claim_id`s match the ledger exactly — which means it also detects
-**prompt↔normalizer drift** (spec risk R-6): if the agents drift from the canonical form the
-normalizer expects, id-stability drops here.
-
-The harness reports overlap at four increasingly-coarse keys, plus one hard guardrail. **Which of
-these GATES was revised in path (c)** (§9.6) after the exact bar proved unreachable — the current
-default gates on concern-type overlap; the exact-id metrics are still computed but demoted to
-*indicative* diagnostics:
-
-- **concern-type overlap** — mean pairwise Jaccard over each run's set of claim `type`s (the concern
-  *category*: safety / quantitative / temporal / …). **This is the PRIMARY gate** (`--min-concern-overlap`,
-  default 0.8): it asks "does every run surface the same categories of concern?"
-- **predicate overlap** (verb+object) and **symbol overlap** — reported as additional diagnostics,
-  measuring how much the *predicate* and the *mechanism symbol* agree run-to-run.
-- **Jaccard@claim_id** and **claim_id stability** — the exact-matrix metrics. **Indicative only**
-  (not gating unless `--strict-ids`); a recurring claim that still forks its id shows up here.
-- **count dispersion** — median claim count and spread (the original headline symptom, 18/77/22/11).
-- **B-1…B-4 caught-every-run guardrail** — the four incident blockers must be present in **every**
-  run; a determinism/coarsening change that dropped a blocker would fail here (guards spec R-3 / F-1).
-
-**Invocation (generic paths; run against N≥5 ledgers from repeat harvests on ONE changeset):**
+The harness is committed at `scripts/harvest_stability.py`. It does **not** run the harvesters itself
+(that is an LLM step, run in a Digital Twin per §9's never-install-locally rule); it **consumes the
+`ledger.json` files** those repeat runs produce and scores their agreement. It imports the real
+identity/normalization code, so its claim ids match the ledger exactly — which also lets it detect the
+harvesters drifting from the canonical claim form the normalizer expects.
 
 ```bash
-# PRIMARY gate: concern-type overlap + blockers caught; exact-id metrics printed as indicative.
+# Primary gate: concern-category overlap + blockers caught; exact-id metrics printed as indicative.
 python scripts/harvest_stability.py <run1>/ledger.json <run2>/ledger.json ... \
     [--min-concern-overlap 0.8] \
     [--require-blocker B-1 --require-blocker B-2 ...] [--json]
 
-# STRICT (opt-in): re-enable the original exact-identity bar to measure it on demand.
+# Strict (opt-in): re-enable the exact-identity bar to measure it on demand.
 python scripts/harvest_stability.py <run1>/ledger.json ... \
     --strict-ids --min-jaccard 0.9 --min-id-stability 0.9
 
@@ -390,242 +165,34 @@ python scripts/harvest_stability.py <run1>/ledger.json ... \
 python scripts/harvest_stability.py --selftest
 ```
 
-Exit code is **0 iff the active gate (primary concern-type overlap, or the exact bar under
-`--strict-ids`) plus the blocker guardrail are met**, 1 otherwise — suitable for wiring into the
-acceptance methodology. Keep the input `ledger.json` files under the uncommitted
-`.amplifier/evaluation/…` tree (§11); commit only the harness and a results **summary**.
+Exit code is **0 iff the active gate (primary concern-category overlap, or the exact bar under
+`--strict-ids`) plus the blocker guardrail are met**, 1 otherwise — suitable for wiring into an
+acceptance run over N≥5 ledgers from repeat harvests on ONE changeset.
 
-### 9.4 Live result (measured) — the fix does NOT meet the bar on the shipped stack
+## 9. Where the runs live (and what is never committed)
 
-The N≥5 in-twin harvest run has now been done, and the result is a **negative**: the shipped
-configuration **FAILS** the KI-1 acceptance bar. Recording it honestly.
+Raw evaluation artifacts — worktrees, diffs, ledgers, matrices, and per-run logs — live **outside this
+repo** in an untracked location, and are **not** committed. They contain full run transcripts and
+machine-specific paths; keeping them out of the repo is deliberate.
 
-**Setup.** N=5 repeat harvests on ONE fixed changeset (the fixed PR#70 `c324cbe` changeset), run
-in a Digital Twin, bundle `@b646bf2`, scored by `scripts/harvest_stability.py` and independently
-re-scored on host. The numbers below are real measurements, not projections.
+**Committed:** this methodology document and the harness only.
+**Never committed:** raw run output, the reconstructed worktrees, per-run ledgers/matrices, absolute
+machine paths, and any provider/model or credential data.
 
-| Config | Jaccard@claim_id (mean pairwise) | claim_id stability | claim counts | Bar 0.9 / 0.9 |
-|---|---|---|---|---|
-| **SHIPPED** (`verify-claims`, `temperature: 0` in `agent_config`) | **0.0075** | **0.0395** | 54 / 58 / 75 / 82 / 85 | **FAIL** |
-| bare path (no temperature pin) | 0.0 | 0.0 | 58–101 | FAIL |
+To reproduce, recreate the `BASE / ADVERSE_HEAD / FIXED_HEAD` reconstruction on your own subject PR
+per §3–§6 and keep your runs in an untracked location.
 
-Both paths agree: the claim-id sets are **essentially disjoint run-to-run.** The shipped config is a
-hair above zero, not near the 0.9 target.
+## 10. Install-target and usability notes
 
-**Root cause #1 — the temperature prong is INERT on this stack (code-proven).** The harvest routes
-to Claude Opus ≥ 4.7 (opus-4-8 / opus-5), and the anthropic provider **does not send a `temperature`
-for Opus ≥ 4.7** — it is silently ignored ("Opus 4.7+ silently ignores temperature"). So on any
-Opus-4.7+/Sonnet-5 deployment the `temperature: 0` pin does **nothing**; **only the prompt prong is
-actually active.** The near-identical scores of the shipped vs. bare paths above are the empirical
-confirmation of this: pinning temperature changed nothing because the pin never reached the model.
+Two things worth knowing, both verified on a real host (not a twin):
 
-**Root cause #2 — the dominant residual variance is paraphrase + granularity**, which
-`identity.py` **deliberately does not collapse.** The canonical normalizer omits stemming and
-synonym-folding on purpose (to avoid the R-1 false-merge risk — merging genuinely distinct claims is
-worse than failing to merge paraphrases). The prompt prong (canonical claim-statement form +
-atomicity rule) is the only thing pushing toward convergence, and **the prompt prong alone does not
-force it**: the agents still paraphrase the same claim differently and decompose the change at
-different granularities run-to-run, so the normalized text differs and the `claim_id`s fork.
-
-**What this does and does not invalidate.**
-- The **code prong is still correct and proven** — it collapses *trivial* rewording (case, unicode,
-  punctuation, articles, contractions, identifier-case) as designed; the 118-test suite and the R-1
-  minimal-pairs tripwire all pass. It simply does not, by itself, collapse *paraphrase*, which is the
-  variance that actually dominates here.
-- The **R-6 drift guard is in place** (13 dedicated tests) and the harness (importing the real
-  `identity.py`) would catch prompt↔normalizer drift.
-- But **end-to-end run-to-run reproducibility is NOT achieved on the shipped stack.** The 0.9 / 0.9
-  exact bar is not met. This negative drove path (a) — tightening the prompt prong — measured next
-  in §9.5, and then path (c)'s resolution in §9.6–§9.7.
-
-### 9.5 Path (a) re-measure — the stricter template did NOT converge the exact matrix (`@2a97cb7`)
-
-After §9.4's negative, the prompt prong was tightened hard (path (a), tracked `claim_gate-wd7`): a
-**required mechanism×property grid** (one claim per occupied cell), a **rigid `<symbol> <verb> <object>`
-template** over a closed predicate vocabulary with **deterministic per-property typing**, and a
-second-pass canonicalizer — all unit-proven (147 module tests, incl. +29 template↔normalizer R-6
-tests). A fresh N=5 in-twin re-measure on the **same** fixed changeset (`@2a97cb7`):
-
-| Config | Jaccard@claim_id | claim_id stability | counts | exact 0.9 / 0.9 |
-|---|---|---|---|---|
-| path (a) — grid + rigid template | **0.0** | **0.0** | 34–88 | **FAIL** (no improvement; slight regression) |
-
-**What this proved (the diagnosis, not a spin).** The template *is* being followed — phrasing is
-canonical — but the variance simply **moved from phrasing to claim SELECTION**: *which* symbols get
-harvested, at *what* granularity, and (since `type` is in the id hash) which property/type a shared
-symbol is assigned. Canonicalizing *how* a claim is worded does nothing while *which* claims are
-selected still varies run-to-run. So the exact-matrix bar (Jaccard@claim_id ≥ 0.9) is **not reachable**
-with a free-form LLM harvest on the shipped stack — for three now-proven reasons: (1) paraphrase **and
-selection** variance (path (a)), (2) `identity.py` deliberately does **no** semantic-collapse (R-1
-false-merge safety), (3) `temperature: 0` is inert on Opus ≥ 4.7 (§9.4). The path-(a) change is kept —
-deterministic typing + canonical phrasing + the hardened R-6 guard are correct and are prerequisites
-for any future selection fix — but on its own it does not move the exact metric.
-
-### 9.6 Path (c) resolution — coarsen the acceptance bar to what is real and what matters (`claim_gate-0ut`)
-
-Rather than chase an unreachable exact-identity bar (path b, controlled semantic-collapse, was
-rejected for the R-1 false-merge hazard), path (c) **measured the reproducibility at increasingly
-coarse keys** and redefined the bar to the coarsest key that is both reproducible **and** the one that
-actually matters for a gate. Mean pairwise Jaccard on the 5 tightened path-(a) ledgers (`@2a97cb7`),
-by key:
-
-| Key (coarse → fine) | Mean pairwise Jaccard | Reproducible? |
-|---|---|---|
-| `type` (concern category) | **0.933** | **Yes** — every run surfaces the same categories of concern |
-| predicate (verb + object) | 0.548 | Partially |
-| symbol (mechanism) | 0.306 | No |
-| exact `claim_id` | 0.0 | No (the exact matrix is unreachable) |
-
-The reading is decisive: the **exact matrix is unreachable, but WHICH CATEGORIES OF CONCERN surface is
-reproducible.** So the honest, gate-relevant guarantee is concern-category stability, not id identity.
-
-**The harness was reworked to gate on this** (`--selftest` + `python_check` clean): the **PRIMARY gate
-is now concern-type overlap ≥ `--min-concern-overlap` (default 0.8)** plus the blocker guardrail; the
-exact `Jaccard@claim_id` and `claim_id stability` are **demoted to reported "indicative" diagnostics**
-(no longer gating); predicate and symbol overlap are also reported; and a **`--strict-ids`** flag
-re-enables the old exact bar on demand. Real run over the tightened ledgers: **concern-type overlap
-0.9333 → PASS at 0.8**, with exact `Jaccard@claim_id 0.0` shown as indicative.
-
-**The revised, honest KI-1 acceptance bar — three tiers:**
-
-1. **PRIMARY (the gate's real guarantee — what actually matters).** The top-line **VERDICT** and the
-   **incident-blocker (B-1…B-4) catch** are STABLE run-to-run. Demonstrated in the acceptance
-   evaluation (§1–§7): **4/4 runs returned BLOCK and caught B-1…B-4 every run.** **MET.**
-2. **SECONDARY (harvest health — now the harness's gate).** **concern-type overlap ≥ 0.8** — every run
-   surfaces the same categories of concern. Measured **0.933 → PASS**. Predicate overlap 0.55 and
-   symbol overlap 0.31 are reported as additional diagnostics (they are not gated).
-3. **ACCEPTED RESIDUAL (documented, not hidden).** Exact run-to-run `claim_id` matrix identity is **NOT
-   achievable** with a free-form LLM harvest on the shipped stack — for the three proven reasons above.
-   Therefore **F-9 run-to-run matrix *diffing* is best-effort / indicative, not guaranteed.** Anyone who
-   wants to measure the exact bar can still do so with `--strict-ids`.
-
-### 9.7 Status — CLOSED at the revised, honest bar
-
-**KI-1 is CLOSED** at the tiered bar above (path (c), `claim_gate-0ut`), with the exact-identity residual
-documented, not hidden.
-
-- **Built + proven (unit-level):** the `identity.py` canonical-form pipeline with the R-1 over-collapse
-  tripwire, the deterministic mechanism×property grid + rigid template + per-property typing, and the
-  R-6 prompt↔normalizer drift guard — the full module suite (**147 tests**) passes; the harness
-  `--selftest` passes; `python_check` clean.
-- **Measured:** exact matrix identity is unreachable (Jaccard@claim_id 0.0, both `@b646bf2` and the
-  tightened `@2a97cb7`); concern-category reproducibility **0.933**, clearing the 0.8 primary gate.
-- **Guaranteed:** the verdict + blocker catch (PRIMARY, met in acceptance) and concern-type overlap
-  (SECONDARY, harness-gated, met). **Not guaranteed:** exact matrix diffing (accepted residual).
-
-## 10. At-HEAD re-validation (`402293f`) — gate still BLOCKs, B-1…B-4 caught after the harvester rewrite
-
-The original acceptance (§1–§7) ran on the MVP commit. This section records a re-run of the **full
-static gate at current HEAD (`402293f`)** — after the KI-1 harvester canonical-form/grid rewrite
-(`2a97cb7`, §9) — over the **same** Context-Intelligence PR#70 adverse changeset (`c324cbe`) used for
-that original acceptance. **Purpose:** confirm the harvester rewrite did **not** regress the gate's
-core catch. It did not.
-
-**Setup / drive path.** Run in the twin (`claim-guard-dtu`, static `claim-guard` bundle) via the
-`verify-claims` recipe: Gate A approved → static bench fanned out (`correspondence-auditor` +
-`test-correspondence-auditor` over all 54 claims; `chokepoint-mapper` over guard claims;
-`boundary-adversary` over cap claims) → the **deterministic `claim_ledger` gate**. The final verdict
-is that pure computation over the ledger, **not an LLM judgement**.
-
-**Final verdict: `BLOCK`.** Coverage **harvested = 54 / verified = 54**. Aggregates: **CONFIRMED 34,
-REFUTED 15, UNTESTABLE 5**. **20 distinct blocking claims** — 15 via **limb 1** (REFUTED) and 12 via
-**limb 2** (safety claim with no adverse-state test); the two limbs overlap, so the distinct blocking
-set is 20. Independently re-verified on the host from the pulled `ledger.json` (same distribution;
-each blocker carries a real `file:line` anchor).
-
-**The four incident blockers — all caught at HEAD, with the terse canonical-template claim text:**
-
-| # | Blocker | Claim id | Claim text (canonical template) | Verdict | Caught by | Evidence (`file:line`) |
-|---|---|---|---|---|---|---|
-| B-1 | degraded server dups `:Node` | `clm_5a3753ef` | *"upsert_node preserves integrity"* | REFUTED | correspondence + test-corr + chokepoint-mapper (**0/2 paths guarded**) | `neo4j_store.py:993-1003`, `:1476-1502` |
-| B-2 | dup Iteration, "one branch over" | `clm_ae05c019` (+ sibling `clm_96ebe419`) | *"_process_batch repeats safely"* | REFUTED | correspondence + test-corr | `registry.py:391-441`; `iteration.py:97-109` |
-| B-3 | `max_delete` cap inversion | `clm_ee2e653e` | *"max_delete rejects inversion"* | REFUTED | correspondence + test-corr + boundary-adversary (**`-1`**) | `admin.py:648-653`, `:937-945` |
-| B-4 | tests certify liveness, not integrity | 12 safety claims + `clm_9dfab328` / `clm_5d1d3873` | (integrity REFUTALs) | REFUTED + **limb 2** | test-corr (`adverse_state_test.exists=false` on 12 safety claims) | `main.py:362-373`; `session.py:64-87` |
-
-**Regression check: PASS.** The **terser canonical-template** claims produced by the KI-1 rewrite —
-*"max_delete rejects inversion"*, *"upsert_node preserves integrity"*, *"_process_batch repeats
-safely"* — were **still refuted** by the static lenses against the real adverse source, each with a
-`file:line` anchor **and** a counter-case. The harvester rewrite is confirmed **non-regressive to the
-gate's core function**: the coarser, deterministic claim text did not blunt the lenses' catch. This
-strengthens the acceptance record — the four-blocker catch now holds on **current** code, not only the
-MVP commit.
-
-**Caveats (stated honestly).**
-
-- **LSP unavailable in-twin.** `chokepoint-mapper` had no LSP, so it fell back to `grep` + full-file
-  reads (noted in its own evidence) — and **still** enumerated the unguarded reaching paths (e.g.
-  B-1's 0/2). The catch held on the fallback path; a fuller run with LSP would only sharpen the
-  path-enumeration, not change the verdict.
-- **One recipe step-wrapper timed out at 600s**, but its lens verdicts had **already persisted** to the
-  ledger before the wrapper exited; because the final verdict is the deterministic `claim_ledger`
-  gate over the persisted ledger (not an in-flight LLM step), the timeout did not affect it.
-
-**Artifacts** (uncommitted, outside the repo, on the host):
-`.amplifier/evaluation/claim-guard/head-revalidation/` — `ledger.json`, `claim-matrix.md`,
-`verdict.md`.
-
-## 11. Where the runs live (and what is never committed)
-
-Raw evaluation artifacts — worktrees, diffs, ledgers, matrices, and per-run logs — live **outside
-this repo**, under a workspace-local `.amplifier/evaluation/claim-guard/` tree, and are **not
-committed**. They contain full run transcripts and machine-specific paths; keeping them out of the
-repo is deliberate.
-
-**Committed:** this methodology document only.
-**Never committed:** raw run output (`run.jsonl`/logs), the reconstructed worktrees, per-run
-ledgers/matrices, absolute machine paths, and any provider/model or credential data.
-
-To reproduce, recreate the `BASE / ADVERSE_HEAD / FIXED_HEAD` reconstruction on your own subject
-PR per §3–§6 and keep your runs in an untracked location.
-
-## 12. Behavior-only `--app` usability (DX2) — real-host end-to-end, not just "composes"
-
-The DX2 rework (smart-ops, skills-under-`--app`, mode registration, empirical lens) was proven on a
-**real host app-CLI** (not a DTU — DTUs rewrite git URLs and masked earlier host-resolution bugs),
-against `main`, captured 2026-08-20. This is the honest usability proof the incident (session
-`9bb3579c`, where `/claim-guard` had never registered and the agent hand-drove raw ledger ops)
-demanded.
-
-### 12.1 Install-target diagnosis (a real bug this found)
-
-A bare behavior file added with `--app`
-(`…#subdirectory=behaviors/claim-guard.yaml --app`) registers an **empty registry stub**
-(`bundles.claim-guard-behavior` had `keys: []`, no `app_bundle`/`is_root`) and **composes nothing**
-— verified: a `-B foundation` session saw 0 claim-guard agents, no tool, no `/claim-guard*`. App
-bundles must be *root* bundles. Fix (commit on `main`): the install targets the **root** bundle,
-`amplifier bundle add "git+…/amplifier-bundle-claim-guard@main" --app`. The README carried the wrong
-target — exactly the claim↔reality drift this gate exists to catch, in its own docs.
-
-### 12.2 Composition under root `--app` onto `-B foundation` (verified live)
-
-- **7** `claim-guard:*` agents, including the new `empirical-verifier`.
-- `claim_ledger` tool available with **15 operations** (incl. the DX2 smart-ops `start_run`,
-  `add_claims`, `report`).
-- `/claim-guard` (the **mode**) + `/claim-guard-review` (isolated fork skill) registered;
-  `claim-guard-here` is model-invocable via `load_skill` (the agent path — the incident fix).
-- Mode `claim-guard` available but **NOT active** (`active_mode: null`).
-
-### 12.3 No host hijack (verified live)
-
-With claim-guard `--app`-layered but the mode not activated, a `-B foundation` session was asked to
-`write_file hijack-check.txt` — the write **succeeded** (14 bytes). A registered mode is inert until
-activated; layering claim-guard onto any host bundle never blocks the host's editing.
-
-### 12.4 End-to-end gate drive (verified live)
-
-A `-B foundation` session was given a plain "review this changeset before merge" over a tiny adverse
-sample (`process_refund` whose commit claims *"rejects negative amounts and caps at max_refund"*,
-but `process_refund(-50, 100)` returns `-50`). Unprompted on mechanics, the agent:
-
-- **loaded the `claim-guard-here` skill** (model-invocable playbook — the incident fix), then
-- drove the ledger through the **smart-ops** (`start_run` → `add_claims` bulk → `report`), never
-  hand-driving raw `add_claim` op-by-op, and
-- ran two independent lenses: **correspondence-auditor** (static — "no negative-value guard exists")
-  and **empirical-verifier**, which **actually executed the code**
-  (`python3 -c "…process_refund(-50,100)"` → observed `-50`) to refute the claim **first-hand**.
-
-Deterministic result: **BLOCK** — `"rejects negative amounts"` **REFUTED** (static + empirical,
-independently) with a `file:line` anchor and the counter-case `process_refund(-50,100) → -50`;
-`"caps at max_refund"` CONFIRMED. The proposed one-line fix was surfaced, **not applied**
-(read-only honored). The empirical lens delivered the kind of evidence a source read cannot: a real
-execution observation, recorded to the ledger alongside the static verdict.
+- **Install the root bundle, not a bare behavior.** Adding a bare behavior file with `--app` registers
+  an empty stub that composes nothing. Install the root bundle:
+  `amplifier bundle add "git+…/amplifier-bundle-claim-guard@main" --app`.
+- **Layering the bundle does not hijack the host.** A registered mode is inert until activated —
+  layering claim-guard onto any host bundle never blocks the host's editing until you activate
+  `/claim-guard`. With the mode active, the write-fence applies; with it inactive, ordinary editing
+  works. The end-to-end gate drive (harvest → independent lenses → deterministic `claim_ledger`
+  verdict) was confirmed live on a small adverse sample: a claim that the code did not keep was
+  **REFUTED** by both a static lens and the empirical lens (which actually executed the code), and the
+  gate returned **BLOCK** with the counter-case; the proposed fix was surfaced, not applied.

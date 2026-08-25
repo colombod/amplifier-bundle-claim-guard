@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Harvest-stability metric for KI-1 (design/ki1-determinism-spec.md section 6).
+"""Harvest-stability metric.
 
 Measures whether the two harvester agents produce a *reproducible* claim set on the
-same changeset -- the acceptance metric for KI-1. It does NOT run the harvesters
+same changeset -- the acceptance metric for harvest reproducibility. It does NOT run the harvesters
 itself (that is an LLM step, run in a DTU per the never-install-locally rule); it
 consumes the ledgers those runs produced and scores their agreement.
 
-PRIMARY gate vs INDICATIVE diagnostics (KI-1 path (c) revision)
+PRIMARY gate vs INDICATIVE diagnostics
 ----------------------------------------------------------------
 Empirically (N=5 repeat harvests on one fixed changeset, tightened prompt @2a97cb7),
 exact claim_id identity across runs is NOT reproducible (mean pairwise Jaccard@claim_id
@@ -19,7 +19,7 @@ temperature is inert as a lever on this model tier (Opus>=4.7).
 What IS reproducible: the CATEGORY of concern a run surfaces (claim `type`, e.g.
 `safety`/`integrity`/`performance`) is stable run-to-run (measured ~0.93), and the
 predicate (verb+object, the claim minus its leading symbol) is moderately stable
-(~0.55). This script therefore gates KI-1 on:
+(~0.55). This script therefore gates on:
 
   * PRIMARY: `concern_type_overlap` (mean pairwise Jaccard over claim `type`) meeting
     `--min-concern-overlap`, AND the four incident blockers (B-1..B-4) caught every run.
@@ -353,7 +353,7 @@ def _print_human(report: dict[str, Any]) -> None:
     print()
 
     pg = report["primary_gate"]
-    print("PRIMARY GATE (what KI-1 is actually scored on):")
+    print("PRIMARY GATE (what harvest stability is actually scored on):")
     print(
         f"  concern-type overlap (Jaccard@type)    : {pg['concern_type_overlap']} "
         f"(>= {pg['min_concern_overlap']}? "
@@ -435,7 +435,7 @@ def _selftest() -> int:
         print("FAIL: B-1 missing from a run should fail")
         ok = False
 
-    # --- Coarse concern-overlap metrics (KI-1 path c) ---------------------
+    # --- Coarse concern-overlap metrics ---------------------
     # Two runs: different symbols and different claim_ids every time (the
     # measured real-world failure mode), but the same CATEGORIES of concern
     # (safety, integrity) surface both times.
