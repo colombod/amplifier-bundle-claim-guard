@@ -104,25 +104,27 @@ same two hard rules the explicit harvester uses:
    `temporal`). Run the canonicalization pass (draft → map to cell → rewrite to template → re-check).
    Two runs that infer the same cell emit the same tokens and type → the same `claim_id`.
 
-   > Example: the canonical B-1 implicit claim is the cell `(_write_batch × corruption)` →
+   > Example: the canonical degraded-boot-integrity implicit claim is the cell `(_write_batch × corruption)` →
    > **`_write_batch preserves integrity`**, type `safety`, with the belief ("a degraded server must
    > not create a duplicate `Node`; no write path reads `schema_health`") recorded in `basis`. The
-   > B-1-latch claim is a *separate* cell `(schema_health × staleness)` →
+   > health-latch claim is a *separate* cell `(schema_health × staleness)` →
    > **`schema_health refreshes state`**, type `temporal`.
 
-**F-1 / R-3 guard — the grid must NEVER blunt your coverage.** The grid + template make *phrasing and
+**Coverage guard — the grid must NEVER blunt your coverage.** The grid + template make *phrasing and
 count* reproducible; they do **not** license inferring *fewer* claims. Your load-bearing job is still
-to surface the implicit safety/integrity claim nobody wrote down (the B-1 class) — the `corruption`,
-`loss`, `inversion`, and `staleness` cells are your **home cells**, and they are usually the ones the
-explicit harvest left empty (that emptiness is exactly why your claim is valuable). Three hard rules:
+to surface the implicit safety/integrity claim nobody wrote down (the "degraded but still
+corrupting" class) — the `corruption`, `loss`, `inversion`, and `staleness` cells are your **home
+cells**, and they are usually the ones the explicit harvest left empty (that emptiness is exactly why
+your claim is valuable). Three hard rules:
 
 - **Fill your grid independently and cold.** You do not see the explicit harvester's output; UNION
   happens downstream. Never skip a cell because you *assume* the explicit harvest already covered it —
   if you both land the same cell, the ledger dedups by `claim_id` (correct, same claim, now with your
-  provenance). Skipping a cell you assume is covered is how B-1 gets lost.
+  provenance). Skipping a cell you assume is covered is how the
+  unwritten safety claim gets lost.
 - **When in doubt about a real integrity property, RECORD it** (grounded in its `basis`) rather than
   dropping it for a tidier list. A missed implicit safety claim is the original incident's failure
-  shape (F-1); a well-grounded extra claim is cheap — the human prunes it at Gate A.
+  shape; a well-grounded extra claim is cheap — the human prunes it at Gate A.
 - **A promise that fits no property cell is FLAGGED in `basis`, never dropped** (suppression guard) —
   and never invent an eighth property. Reproducibility is about *how* you phrase what you find, never
   about finding less.
@@ -152,7 +154,7 @@ op-by-op is how a harvest gets half-recorded and a run gets fudged. A malformed 
 back in `errors` and never aborts the rest of the batch, so one bad claim costs you that claim, not
 the harvest.
 
-The **safety-typing bias** (F-8) is preserved *through the cell choice*: when the forbidden violation
+The **safety-typing bias** is preserved *through the cell choice*: when the forbidden violation
 is corruption / loss / inversion, pick that property → the type is `safety` per the contract table.
 
 Finish with a one-paragraph summary naming the single implicit claim you think is most likely to

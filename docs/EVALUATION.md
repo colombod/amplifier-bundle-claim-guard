@@ -29,15 +29,15 @@ after the fact — by a human reviewer, an incident, or a follow-up fix — is a
 follow-up fixes are the answer key: each remediation commit corresponds to a blocker the gate should
 have caught on the pre-fix state.
 
-The acceptance run used a real server PR with **four** documented blockers (referred to below as
-B-1…B-4), each later fixed by a specific commit:
+The acceptance run used a real server PR with **four** documented blockers — named below by their
+shape, and referred to by those names throughout — each later fixed by a specific commit:
 
 | Blocker | Class | Shape |
 |---|---|---|
-| B-1 | safety / integrity | a change that made a failure *survivable* but not *safe* — degraded operation could still corrupt data because no write path consulted the health signal |
-| B-2 | concurrency | a guard applied "one branch over" — present on a rare path, absent on the common retry path that reaches the same chokepoint |
-| B-3 | boundary / quantitative | a cap with no lower-bound validator — a negative value inverted it |
-| B-4 | test-correspondence | tests that certified *liveness* while the commit claimed *integrity* — green for the wrong reason |
+| **degraded-boot integrity** | safety / integrity | a change that made a failure *survivable* but not *safe* — degraded operation could still corrupt data because no write path consulted the health signal |
+| **one-branch-over guard** | concurrency | a guard applied "one branch over" — present on a rare path, absent on the common retry path that reaches the same chokepoint |
+| **cap inversion** | boundary / quantitative | a cap with no lower-bound validator — a negative value inverted it |
+| **wrong-thing tests** | test-correspondence | tests that certified *liveness* while the commit claimed *integrity* — green for the wrong reason |
 
 ## 3. Reconstructing the adverse ("pre-remediation") state
 
@@ -46,7 +46,7 @@ answer key (the remediation commits) is **excluded** from what the gate sees.
 
 1. Identify three revisions:
    - `BASE` — the merge-base with the target branch;
-   - `ADVERSE_HEAD` — the last commit **before** any B-1…B-4 remediation (all blockers present);
+   - `ADVERSE_HEAD` — the last commit **before** any blocker remediation (all four present);
    - `FIXED_HEAD` — a head **after** the remediations (the control).
 2. **Verify the boundary.** Confirm each blocker is actually present at `ADVERSE_HEAD` and actually
    fixed at `FIXED_HEAD`, by inspecting the load-bearing line. (E.g. a cap field with vs without its
@@ -84,7 +84,7 @@ non-deterministic, so the bar must be met **reliably**, not once.
 
 **Adverse run (power):**
 - The gate returns **BLOCK**.
-- Each of B-1…B-4 appears as a **REFUTED** (or otherwise blocking) claim, with a `file:line` anchor
+- Each of the four blockers appears as a **REFUTED** (or otherwise blocking) claim, with a `file:line` anchor
   into the worktree and a counter-case.
 - Coverage is complete (no INDETERMINATE from missing lenses / empty harvest) — a BLOCK that is
   actually an incomplete run does **not** count as a pass.
@@ -92,12 +92,12 @@ non-deterministic, so the bar must be met **reliably**, not once.
 **Control run (specificity):**
 - Run the same gate against `FIXED_HEAD` (a worktree at the fixed head; diff/commits scoped to
   include the fixes).
-- The claims corresponding to B-1…B-4 flip to **CONFIRMED** (each now carrying the `file:line` of the
+- The claims corresponding to the four blockers flip to **CONFIRMED** (each now carrying the `file:line` of the
   code that keeps the promise). Claims that remain genuinely untestable statically may stay
   `UNTESTABLE` — that is honest, not a failure — but the fixed defects must no longer read REFUTED.
 
 The acceptance is met when the adverse run **reliably** catches all four blockers and the control run
-**reliably** clears the fixed ones. (Extra REFUTED claims beyond B-1…B-4 are expected and welcome — a
+**reliably** clears the fixed ones. (Extra REFUTED claims beyond the four known blockers are expected and welcome — a
 sharper gate finds more than the human did; they are reported, not penalised.)
 
 ## 7. Interpreting the result honestly
@@ -116,7 +116,7 @@ sharper gate finds more than the human did; they are reported, not penalised.)
 ## 8. Results (summary)
 
 **Static gate — power and specificity.** On the four-blocker subject, the adverse run reliably
-returned **BLOCK** and caught B-1…B-4 every time, each with a `file:line` anchor and a counter-case;
+returned **BLOCK** and caught all four blockers every time, each with a `file:line` anchor and a counter-case;
 the fixed-head control cleared the fixed defects. This was re-run against current `HEAD` after a
 harvester rewrite and still holds — the gate's core catch did not regress.
 
@@ -155,7 +155,7 @@ harvesters drifting from the canonical claim form the normalizer expects.
 # Primary gate: concern-category overlap + blockers caught; exact-id metrics printed as indicative.
 python scripts/harvest_stability.py <run1>/ledger.json <run2>/ledger.json ... \
     [--min-concern-overlap 0.8] \
-    [--require-blocker B-1 --require-blocker B-2 ...] [--json]
+    [--require-blocker degraded-boot --require-blocker cap-inversion ...] [--json]
 
 # Strict (opt-in): re-enable the exact-identity bar to measure it on demand.
 python scripts/harvest_stability.py <run1>/ledger.json ... \

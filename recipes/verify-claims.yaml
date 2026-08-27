@@ -22,7 +22,7 @@ tags: ["claim-guard", "verification", "gate", "adversarial", "review", "staged",
 # This recipe guarantees ONLY:
 #   (a) a neutral changeset digest (foundation:explorer, judgment-free),
 #   (b) a COLD/INDEPENDENT claim harvest (claim-harvester + purpose-inquisitor), UNIONed via the
-#       ledger — implicit-claim inference can only ADD claims, never remove one (F-1),
+#       ledger — implicit-claim inference can only ADD claims, never remove one,
 #   (c) Gate A: a human checkpoint on the claim ledger BEFORE any verification spend,
 #   (d) a COLD/INDEPENDENT static-verify fan-out (each lens references only the ledger claims + the
 #       changeset digest, NEVER a sibling lens's output),
@@ -52,7 +52,7 @@ context:
   changeset: ""                    # diff / PR ref / branch range under review
   commit_messages: ""              # git log text for the changeset
   design_docs: ""                  # linked design/spec doc paths or inline text (claim sources)
-  council_verdict: ""              # OPTIONAL (F-1): a prior /council verdict to fold in as claims
+  council_verdict: ""              # OPTIONAL: a prior /council verdict to fold in as claims
   repo_path: "."                   # path to the repo under review
   gate_policy: "blocking-with-waiver"   # advisory | blocking-with-waiver | blocking
   max_rounds: 3                    # debate-loop cap (HONORED BY THE CONCIERGE, not this recipe)
@@ -135,7 +135,7 @@ stages:
             - module: "provider-anthropic"   # match the active provider for your deployment
               config:
                 temperature: 0
-                # Also pin the MODEL version to stop model-drift forking the claim set (spec R-4):
+                # Also pin the MODEL version to stop model-drift forking the claim set:
                 # set this to your deployment's dated model, e.g. "claude-sonnet-4-5-20250929".
                 # Left commented so the step falls back to the agent's model_role routing when the
                 # dated model isn't present in a given environment (a wrong hard pin only fails at
@@ -163,7 +163,7 @@ stages:
       - id: "harvest-implicit"
         agent: "claim-guard:purpose-inquisitor"
         # Determinism pin. Intended: temperature: 0 for phrasing reproducibility on an
-        # INFERENCE task (with the R-3/F-1 caveat that temp 0 must not blunt implicit-claim discovery —
+        # INFERENCE task (with the caveat that temp 0 must not blunt implicit-claim discovery —
         # the agent body is told reproducibility is about HOW claims are phrased, never finding fewer).
         # MEASURED INERT ON THE CURRENT HARVEST ROUTING: harvest routes to Claude Opus >=
         # 4.7, and the anthropic provider does NOT send a temperature for Opus >= 4.7 — silently
@@ -176,7 +176,7 @@ stages:
             - module: "provider-anthropic"   # match the active provider for your deployment
               config:
                 temperature: 0
-                # Pin the MODEL version too (spec R-4); set to your deployment's dated model, e.g.
+                # Pin the MODEL version too; set to your deployment's dated model, e.g.
                 # "claude-sonnet-4-5-20250929". Left commented so the step falls back to the agent's
                 # model_role routing when that dated model isn't present (a wrong hard pin only fails
                 # at run time, not compose time) — uncomment + set for a reproducible harvest.
@@ -336,7 +336,7 @@ stages:
           "list_claims"; record a verdict per claim via claim_ledger "record_verdict"
           (lens="test-correspondence-auditor"), setting the adverse_state_test field. For safety
           claims, adverse_state_test.exists=false is the second gate limb. If LSP test-tracing is
-          unavailable, return UNTESTABLE (F-2) — do not guess CONFIRMED.
+          unavailable, return UNTESTABLE — do not guess CONFIRMED.
 
           Changeset digest:
           {{changeset_digest}}

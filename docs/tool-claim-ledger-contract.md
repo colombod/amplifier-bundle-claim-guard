@@ -28,7 +28,7 @@ The tool mounts via the standard module `mount()` contract (must call
 
 ```json
 {
-  "claim_id": "clm_<8hex>",              // stable across runs — see Stable Claim IDs (F-9)
+  "claim_id": "clm_<8hex>",              // stable across runs — see "Stable claim IDs across runs"
   "text": "a degraded server will not corrupt data",
   "type": "correspondence|safety|quantitative|temporal|concurrency|coverage",
   "source": "issue:#123 | commit:<sha> | docstring:registry.py:88 | pr-body | council-verdict:<lens/finding>",
@@ -215,7 +215,7 @@ instead.
   type in `types`, a `conditional` entry missing `included`/`reason`, or a lens name appearing
   in **both** `mandatory` and `conditional`) or `run_not_found`.
 
-### `record_debate`  *(F-6 — auditable relay)*
+### `record_debate`  *(auditable relay)*
 Persist the verbatim payload relayed to a lens in a debate round, so "verbatim relay, no curation"
 is auditable after the fact even though it cannot be structurally prevented.
 
@@ -425,7 +425,7 @@ REFUTED  >  UNTESTABLE  >  CONFIRMED  >  N/A
 ```
 
 - Any single `REFUTED` → aggregate `REFUTED`. A `CONFIRMED` from another lens **cannot** raise it.
-  (This is the S-3 case: correspondence-auditor CONFIRMED + chokepoint-mapper REFUTED → **REFUTED**.)
+  (Worked case: correspondence-auditor CONFIRMED + chokepoint-mapper REFUTED → **REFUTED**.)
 - No `REFUTED` but any `UNTESTABLE` → `UNTESTABLE`.
 - All present verdicts `CONFIRMED` (with ≥1) → `CONFIRMED`.
 - Only `N/A` → `N/A`. An abstention never lowers an aggregate.
@@ -440,8 +440,8 @@ REFUTED  >  UNTESTABLE  >  CONFIRMED  >  N/A
 1. any claim `aggregate == REFUTED`;
 2. any claim with `type == "safety"` (or otherwise carrying an integrity/security obligation) has
    `adverse_state_test.exists == false` — **independent of limb 1**, so a CONFIRMED safety claim
-   with no adverse-state test still BLOCKs (the B-4 case) — **but ONLY when the run's
-   `probe_scope` is `"in-scope"`** (the default). A run that declares `probe_scope:
+   with no adverse-state test still BLOCKs (the "tests certified the wrong thing" case) — **but
+   ONLY when the run's `probe_scope` is `"in-scope"`** (the default). A run that declares `probe_scope:
    "out-of-scope"` (a static-only run, e.g. the `verify-claims` MVP, which never gathers dynamic
    adverse-state evidence) never had the mandate to fill this gap, so the limb does not BLOCK it:
    the claim is instead surfaced as an advisory reason `unprobed-safety-claim:<claim_id>` on
@@ -470,8 +470,8 @@ REFUTED  >  UNTESTABLE  >  CONFIRMED  >  N/A
    — `{mandatory: [], conditional: {}}` — is the durable opt-out that suppresses this signal).
    4c never rewrites a claim's `aggregate` or contributes to limbs 1–3 — a coverage gap can only
    ever produce an INDETERMINATE run, never a fabricated BLOCK/PASS/CONFIRMED;
-5. **zero claims harvested** (`coverage.harvested == 0`) → reason `zero-claims-harvested` (the S-8
-   rule: an empty claim list is a harvest failure, not a clean bill of health).
+5. **zero claims harvested** (`coverage.harvested == 0`) → reason `zero-claims-harvested` (an empty claim
+   list is a harvest failure, not a clean bill of health).
 
 Otherwise `verdict = PASS`.
 
@@ -504,7 +504,7 @@ verdict) is `REFUTED`, moving it toward `CONFIRMED`:
 
 - **`ratchet_violation`** — reject unless `evidence` contains at least one anchor **not already
   present** anywhere in that claim's existing verdict evidence. Prose alone, or re-citing the same
-  lines, cannot clear a `REFUTED`. (This is the S-9 case: "MERGE is idempotent so it's probably
+  lines, cannot clear a `REFUTED`. (Worked case: "MERGE is idempotent so it's probably
   fine" with no new `file:line` is rejected, and the prior REFUTED stands.)
 
 The rejection is itself appended to the run's audit trail so a concierge can surface "a lens tried
@@ -512,7 +512,7 @@ to clear a REFUTED without new evidence."
 
 ---
 
-## Stable claim IDs across runs (F-9)
+## Stable claim IDs across runs
 
 `claim_id = "clm_" + sha1( normalize(text) + "|" + type + "|" + repo_relpath_of(source) )[:8]`
 
@@ -531,8 +531,8 @@ to clear a REFUTED without new evidence."
 - **Id-space shift:** the hardened normalizer computes different `claim_id`s than the prior
   (lowercase + trailing-punctuation-only) normalizer for any text containing internal punctuation,
   articles, or filler boilerplate. A pre-hardening ledger will not diff cleanly against a
-  post-hardening run — acceptable, since evaluation ledgers are uncommitted and disposable, and F-9
-  diffing is forward-looking from this normalizer onward.
+  post-hardening run — acceptable, since evaluation ledgers are uncommitted and disposable, and
+  claim-id diffing is forward-looking from this normalizer onward.
 - Deliberately **excludes** `inferred`, `basis`, `quote`, line numbers, and the run — a claim keeps
   its identity across re-runs of an evolving PR, and across explicit↔implicit reclassification.
 - Enables iterative PR review: push new commits, re-run, and the ledger diffs verdicts against the
@@ -542,7 +542,7 @@ to clear a REFUTED without new evidence."
 
 ---
 
-## Test-first (the module is the trust anchor — F-5)
+## Test-first (the module is the trust anchor)
 
 Write these before any agent is wired to the tool:
 

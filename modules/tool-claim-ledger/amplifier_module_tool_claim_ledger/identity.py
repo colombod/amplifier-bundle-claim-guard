@@ -1,4 +1,4 @@
-"""Stable claim identity (F-9).
+"""Stable claim identity.
 
 claim_id = "clm_" + sha1(normalize(text) + "|" + type + "|" + repo_relpath_of(source))[:8]
 
@@ -9,7 +9,7 @@ reclassification. See docs/tool-claim-ledger-contract.md "Stable claim IDs acros
 `normalize_text`: a claim's identity
 must be reword-stable against trivial rewording (case, unicode, punctuation, articles,
 contractions, identifier-case, text-embedded file:line drift) while never over-collapsing
-two genuinely distinct claims into one id. Over-collapse is the #1 risk (spec R-1):
+two genuinely distinct claims into one id. Over-collapse is the #1 risk:
 `ops.py::op_add_claim` treats an `identity_key` match as an idempotent re-add, so a false
 merge silently drops a distinct claim and weakens the gate. Every choice below is biased
 toward under-collapse (two claims stay distinct) over aggressive unification.
@@ -117,7 +117,7 @@ _FILLER_PHRASES = (
 # normalize_text output *retains* "will". Removing "will" as a filler would
 # contradict that worked example (it would produce "degraded server not
 # corrupt data" instead). Where the spec's prose enumeration and its worked
-# example disagree, we resolve conservatively per R-1 (favor under-collapse,
+# example disagree, we resolve conservatively (favor under-collapse,
 # never over-collapse) and follow the worked example -- which is also what the
 # unit tests below assert directly. `will` is therefore deliberately excluded
 # from this set.
@@ -211,7 +211,7 @@ def _canonicalize_prose(text: str) -> str:
 
 
 def normalize_text(text: str) -> str:
-    """Canonicalize claim text for stable identity (F-9).
+    """Canonicalize claim text for stable identity.
 
     Pipeline:
     1. Unicode NFKC + typographic quote folding (whole string).
@@ -221,10 +221,10 @@ def normalize_text(text: str) -> str:
     3. Reassemble in original order, collapse whitespace, strip.
 
     Deliberately conservative -- explicitly NOT done, because each would risk
-    merging distinct claims (over-collapse, spec R-1):
+    merging distinct claims (over-collapse):
     - no token sorting / no bag-of-words (would merge subject/object swaps);
     - no stemming / no lemmatization / no singular<->plural folding (deferred
-      to the prompt-level controlled vocabulary, spec §4, R-2);
+      to the prompt-level controlled vocabulary in skills/claim-harvesting/SKILL.md);
     - no synonym mapping (meaning-adjacent words stay distinct at the hash).
     """
     folded = unicodedata.normalize("NFKC", text).translate(_QUOTE_FOLD)
@@ -251,7 +251,7 @@ def normalize_text(text: str) -> str:
 def repo_relpath_of(source: str) -> str:
     """Strip a trailing ':<line-number>' component from `source`.
 
-    Line numbers are explicitly excluded from claim identity (F-9), so a claim
+    Line numbers are explicitly excluded from claim identity, so a claim
     sourced from `docstring:registry.py:88` keeps the same identity component
     as one sourced from `docstring:registry.py:95` after the code shifts. Source
     kinds with no path component (issue:#123, commit:<sha>, pr-body,

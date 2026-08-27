@@ -234,10 +234,10 @@ counter-case — for example:
 
 | Incident blocker | Verdict | Caught by | Evidence (illustrative) |
 |---|---|---|---|
-| **B-1** degraded boot corrupts data (`survivable ≠ safe`) | REFUTED | purpose-inquisitor (implicit safety claim) + correspondence-auditor + chokepoint-mapper | no write path reads `schema_health` before MERGE (`neo4j_store.py`, `registry.py`) |
-| **B-2** phantom cursor "one branch over" | REFUTED | chokepoint-mapper (correspondence-auditor conceded in round 2) | guard only in `_handle_exhausted_batch`; the common transient-retry loop is unguarded |
-| **B-3** `max_delete` cap inversion | REFUTED | boundary-adversary | no `Field(ge=1)`; `max_delete=-1` → `candidates[:-1]` deletes N-1 |
-| **B-4** tests certified the wrong thing | REFUTED | test-correspondence-auditor | two fixed-fault fixtures assert liveness, not the claimed universal integrity property |
+| **degraded boot corrupts data** (`survivable ≠ safe`) | REFUTED | purpose-inquisitor (implicit safety claim) + correspondence-auditor + chokepoint-mapper | no write path reads `schema_health` before MERGE (`neo4j_store.py`, `registry.py`) |
+| **phantom-cursor guard "one branch over"** | REFUTED | chokepoint-mapper (correspondence-auditor conceded in round 2) | guard only in `_handle_exhausted_batch`; the common transient-retry loop is unguarded |
+| **`max_delete` cap inversion** | REFUTED | boundary-adversary | no `Field(ge=1)`; `max_delete=-1` → `candidates[:-1]` deletes N-1 |
+| **tests certified the wrong thing** | REFUTED | test-correspondence-auditor | two fixed-fault fixtures assert liveness, not the claimed universal integrity property |
 
 As a **control**, the same gate run against the **fixed** head flips those claims to CONFIRMED.
 The methodology to reproduce this is in [`docs/EVALUATION.md`](docs/EVALUATION.md).
@@ -265,7 +265,7 @@ never read as a green light. The limbs, at a glance:
 - **limb 1** — any claim aggregates to **REFUTED** → `BLOCK`
 - **limb 2** — any **safety** claim has **no adverse-state test** (`adverse_state_test.exists=false`)
   → `BLOCK`, *independently of limb 1* (so a CONFIRMED safety claim with no adverse-state test still
-  blocks — the B-4 case). A **deferred** probe does not clear this: deferred ≠ passed.
+  blocks — the "tests certified the wrong thing" case). A **deferred** probe does not clear this: deferred ≠ passed.
 - **limb 3** — any claim aggregates to **UNTESTABLE** with no recorded human waiver → `BLOCK`
 - **limb 4** — any claim is **PENDING**, or any lens recorded an error → `INDETERMINATE`
   (reasons `claim-pending:<claim_id>` and `lens-error:<lens>@<claim_id>`)
