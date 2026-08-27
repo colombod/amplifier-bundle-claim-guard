@@ -29,6 +29,14 @@ model_role: [reasoning, critique, general]
 tools:
   - module: tool-filesystem
     source: git+https://github.com/microsoft/amplifier-module-tool-filesystem@main
+    # structural write-scoping: this lens both writes AND executes probe/repro
+    # material. Confine its writes at the TOOL layer to the run sandbox — NOT the source
+    # tree under review. tool-filesystem enforces allowed_write_paths deny-by-default,
+    # traversal-safe (`../` is resolved before the containment check), for both write_file
+    # and edit_file. `.claim-guard` (the ledger run_dir parent) covers every run-id subdir.
+    config:
+      allowed_write_paths:
+        - .claim-guard
   - module: tool-bash
     source: git+https://github.com/microsoft/amplifier-module-tool-bash@main
   - module: tool-search
