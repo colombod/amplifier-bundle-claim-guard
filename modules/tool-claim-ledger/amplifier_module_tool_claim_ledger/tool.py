@@ -212,6 +212,18 @@ class ClaimLedgerTool:
                     "type": "string",
                     "description": "waive: why. defer_claim: why the probe was deferred.",
                 },
+                "acknowledge_refuted": {
+                    "type": "boolean",
+                    "description": (
+                        "waive: required (must be true) when the target claim's "
+                        "current aggregate is REFUTED -- waiving a refuted claim "
+                        "without this explicit ack is refused "
+                        "(refuted_waiver_requires_ack) and writes nothing. Ignored "
+                        "(no ack needed) for any non-REFUTED aggregate. When true "
+                        "on a REFUTED claim, it is persisted on the waiver record "
+                        "(waiver.acknowledge_refuted = true) for auditability."
+                    ),
+                },
                 "probe": {
                     "type": "object",
                     "description": (

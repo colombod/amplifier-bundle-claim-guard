@@ -225,8 +225,26 @@ is auditable after the fact even though it cannot be structurally prevented.
 ### `waive`  *(policy-gated human downgrade)*
 Record a named human waiver on a claim. Only meaningful under `blocking-with-waiver`.
 
-- **in:** `{ run_id, claim_id, by, reason }`
-- **out:** `{ ok, claim_id, waiver }`
+Before writing anything, recomputes the claim's **current** aggregate with the same
+`compute_aggregate` the gate uses (never a possibly-stale `claim.aggregate` field). If that
+aggregate is `REFUTED`, waiving it is a LOUD, DELIBERATE act, not the same one-liner as waiving
+an `UNTESTABLE` claim: the caller MUST pass `acknowledge_refuted: true`, or the call is refused
+and **nothing is written** to the ledger (the gate stays BLOCK). For any non-REFUTED aggregate
+(`UNTESTABLE`, `CONFIRMED`, `N/A`, `PENDING`), behavior is unchanged — `by`+`reason` alone still
+waive it, no ack required. When `acknowledge_refuted: true` is given for a REFUTED claim, the
+acknowledgment itself is persisted on the waiver record (`waiver.acknowledge_refuted = true`) so
+a refuted-claim waiver is always auditable after the fact. This enforcement lives entirely at
+this waiver-writing seam — `gate.py`'s `waived_clears()` is untouched; a REFUTED claim simply
+cannot acquire a valid waiver without the explicit ack in the first place.
+
+- **in:** `{ run_id, claim_id, by, reason, acknowledge_refuted? }` — `acknowledge_refuted` is
+  required (must be `true`) only when the claim's current aggregate is `REFUTED`; ignored
+  otherwise.
+- **out:** `{ ok, claim_id, waiver }` on success — `waiver` includes `acknowledge_refuted: true`
+  when the waived claim was REFUTED.
+- **rejects:** `refuted_waiver_requires_ack` — claim is REFUTED and `acknowledge_refuted` was not
+  `true`; writes nothing, the claim's waiver is left untouched, and a subsequent `gate` call
+  still returns BLOCK for that claim.
 
 ### `record_probe`  *(Phase-2)*
 Attach a probe result to a claim. Writes `claim.probe` **only** — never touches

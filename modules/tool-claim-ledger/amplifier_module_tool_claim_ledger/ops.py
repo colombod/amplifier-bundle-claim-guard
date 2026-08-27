@@ -501,10 +501,30 @@ def op_record_debate(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]
 
 
 def op_waive(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
+    """Record a named human waiver on a claim.
+
+    A REFUTED claim cannot be waived by the same one-liner as an UNTESTABLE
+    one -- that would let a demonstrably FALSE claim be cleared as quietly as
+    an inconclusive one, defeating the evidence ratchet at the waiver seam.
+    Before writing anything, this recomputes the claim's current aggregate
+    with the SAME `compute_aggregate` the gate uses (never the possibly-stale
+    `claim["aggregate"]` field). If that aggregate is `REFUTED`, the caller
+    must pass `acknowledge_refuted=true` -- omitting it REFUSES the waive
+    (`refuted_waiver_requires_ack`) and writes NOTHING to the ledger. When the
+    ack is given, the waiver is written and the acknowledgment itself is
+    persisted on the waiver record (`waiver.acknowledge_refuted = true`) so a
+    refuted-claim waiver is always auditable after the fact.
+
+    For any non-REFUTED aggregate (UNTESTABLE, CONFIRMED, N/A, PENDING),
+    behavior is completely unchanged -- no ack required, `by`+`reason` alone
+    still waive it. `gate.py`'s `waived_clears()` is untouched: enforcement
+    lives here, at the waiver-writing seam, not in the gate's read path.
+    """
     run_id = data.get("run_id")
     claim_id = data.get("claim_id")
     by = data.get("by")
     reason = data.get("reason")
+    acknowledge_refuted = bool(data.get("acknowledge_refuted", False))
 
     if not run_id or not claim_id or not by or not reason:
         return {
@@ -529,7 +549,20 @@ def op_waive(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
             "message": f"no claim {claim_id!r} in run {run_id!r}",
         }
 
+    current_aggregate = compute_aggregate(claim["verdicts"])
+    if current_aggregate == "REFUTED" and not acknowledge_refuted:
+        return {
+            "ok": False,
+            "error": "refuted_waiver_requires_ack",
+            "message": (
+                f"claim {claim_id!r} is REFUTED; waiving a refuted claim "
+                "requires acknowledge_refuted=true"
+            ),
+        }
+
     waiver = {"by": by, "reason": reason, "at": _now_iso()}
+    if current_aggregate == "REFUTED":
+        waiver["acknowledge_refuted"] = True
     claim["waiver"] = waiver
     store.save(run_id, run_record)
     return {"ok": True, "claim_id": claim_id, "waiver": waiver}
