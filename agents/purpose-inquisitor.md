@@ -127,19 +127,30 @@ explicit harvest left empty (that emptiness is exactly why your claim is valuabl
   and never invent an eighth property. Reproducibility is about *how* you phrase what you find, never
   about finding less.
 
-## Output — record each inferred claim to the ledger
+## Output — record ALL your inferred claims to the ledger in ONE call
 
-For every inferred claim, call the `claim_ledger` tool with `operation: "add_claim"`:
+Record your **entire** harvest with a **single** `claim_ledger` call,
+`operation: "add_claims"`, passing every inferred claim as one element of the `claims` array:
 
 ```json
 {
-  "text": "<mechanism_symbol> <controlled_verb> <controlled_property_object>  (the RIGID template — the cell's fixed predicate, never free prose)",
-  "type": "the type fixed by the cell's property (see the contract table) — do NOT re-type freehand",
-  "source": "issue:<ref> | pr-why | diff-semantics | council-verdict:<lens/finding>",
-  "inferred": true,
-  "basis": "the specific thing this was derived from + any cell-mismatch note (one line) — free-form, NOT hashed"
+  "claims": [
+    {
+      "text": "<mechanism_symbol> <controlled_verb> <controlled_property_object>  (the RIGID template — the cell's fixed predicate, never free prose)",
+      "type": "the type fixed by the cell's property (see the contract table) — do NOT re-type freehand",
+      "source": "issue:<ref> | pr-why | diff-semantics | council-verdict:<lens/finding>",
+      "inferred": true,
+      "basis": "the specific thing this was derived from + any cell-mismatch note (one line) — free-form, NOT hashed"
+    }
+  ]
 }
 ```
+
+Each element keeps exactly the claim shape above — the bulk call changes **how many calls you make**,
+never what a claim is. **Never hand-loop raw `add_claim`, once per claim** — driving the ledger
+op-by-op is how a harvest gets half-recorded and a run gets fudged. A malformed element is reported
+back in `errors` and never aborts the rest of the batch, so one bad claim costs you that claim, not
+the harvest.
 
 The **safety-typing bias** (F-8) is preserved *through the cell choice*: when the forbidden violation
 is corruption / loss / inversion, pick that property → the type is `safety` per the contract table.

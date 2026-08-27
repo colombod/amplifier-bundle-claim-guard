@@ -43,7 +43,7 @@ Aggregation across lenses for one claim is **worst-wins**:
 | Capability | What it is |
 |---|---|
 | **7 lens agents** (`claim-guard:*`) | the adversarial bench — two harvesters, two mandatory core auditors, three conditional lenses (see [The bench](#the-bench)) |
-| **`claim_ledger` tool** (15 ops) | the trust anchor — deterministic worst-wins aggregation, `file:line` evidence enforcement, and the gate rule |
+| **`claim_ledger` tool** (17 ops) | the trust anchor — deterministic worst-wins aggregation, `file:line` evidence enforcement, and the gate rule |
 | **`/claim-guard` mode** | the review posture — blocks `write_file`/`edit_file` (the gate never edits the code it reviews); inert until activated |
 | **`claim-guard-here` skill** | INLINE, model-invocable — the concierge playbook an agent loads to drive the gate **in the current session**. This is the agent path. |
 | **`/claim-guard-review`** | the same gate in an **isolated forked** session, for a changeset the current session has not seen |
@@ -133,9 +133,9 @@ Observed from the behavior-`--app` install, composed onto a plain `-B foundation
 ```
 (1) 7 claim-guard:* agents — boundary-adversary, chokepoint-mapper, claim-harvester,
     correspondence-auditor, empirical-verifier, purpose-inquisitor, test-correspondence-auditor
-(2) claim_ledger tool: available — 15 operations (add_claim, add_claims, aggregate, defer_claim,
-    gate, graduate_test, list_claims, record_debate, record_lens_error, record_probe,
-    record_verdict, render_matrix, report, start_run, waive)
+(2) claim_ledger tool: available — 17 operations (add_claim, add_claims, aggregate, declare_roster,
+    defer_claim, gate, graduate_test, list_claims, list_runs, record_debate, record_lens_error,
+    record_probe, record_verdict, render_matrix, report, start_run, waive)
 (3) /claim-guard (the mode) + /claim-guard-review (isolated forked run) registered;
     claim-guard-here is model-invoked via load_skill, not a slash command
 (4) mode claim-guard available, NOT activated (inert — your host's write_file is unaffected)
@@ -439,10 +439,10 @@ code coupling. Three Phase-2 ops extend the tool:
 | `defer_claim` | marks a probe-eligible claim `deferred` (rejects non-eligible claims) | never touches `adverse_state_test` — **deferred ≠ passed**; a deferred safety claim still blocks |
 | `graduate_test` | records a graduated standing test | structurally rejects unless all four graduation criteria hold; on success sets `standing_test` **and** `adverse_state_test.exists = true` |
 
-The full op surface is **15 ops**: `add_claim`, `list_claims`, `record_verdict`,
-`record_lens_error`, `record_debate`, `waive`, **`record_probe`**, **`defer_claim`**,
-**`graduate_test`**, `aggregate`, `gate`, `render_matrix`, plus the three **concierge ops** below.
-See `docs/tool-claim-ledger-contract.md`.
+The full op surface is **17 ops**: `add_claim`, `list_claims`, `list_runs`, `record_verdict`,
+`record_lens_error`, `declare_roster`, `record_debate`, `waive`, **`record_probe`**,
+**`defer_claim`**, **`graduate_test`**, `aggregate`, `gate`, `render_matrix`, plus the three
+**concierge ops** below. See `docs/tool-claim-ledger-contract.md`.
 
 ### Concierge ops — mechanical, not hand-driven
 
@@ -540,7 +540,7 @@ amplifier-bundle-claim-guard/
 ├── recipes/
 │   ├── verify-claims.yaml                 # Phase 1: the staged static pipeline
 │   └── probe-claims.yaml                  # Phase 2: dynamic pen-testing pipeline, consumes the ledger by run_id
-├── modules/tool-claim-ledger/             # the deterministic ledger + gate (the trust anchor; 15 ops)
+├── modules/tool-claim-ledger/             # the deterministic ledger + gate (the trust anchor; 17 ops)
 └── docs/
     ├── tool-claim-ledger-contract.md      # authoritative interface contract for the module
     └── EVALUATION.md                      # acceptance methodology, evaluation runs, at-HEAD re-validation
