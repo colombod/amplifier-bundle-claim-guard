@@ -19,6 +19,7 @@ silently skipped.
 from __future__ import annotations
 
 import pytest
+
 from amplifier_module_tool_claim_ledger.aggregate import compute_aggregate
 from amplifier_module_tool_claim_ledger.ops import (
     op_add_claim,

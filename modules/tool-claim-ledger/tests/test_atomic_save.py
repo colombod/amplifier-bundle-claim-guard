@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from amplifier_module_tool_claim_ledger.store import LedgerStore
 
 
