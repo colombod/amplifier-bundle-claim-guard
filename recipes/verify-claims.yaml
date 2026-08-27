@@ -3,7 +3,9 @@ description: >
   Adversarial claim-verification gate (MVP static slice). Harvests the claims a changeset makes
   (explicit + implicit, cold and UNIONed), fans the static bench out cold and independent to refute
   each against the shipped source, aggregates verdicts deterministically via the claim_ledger tool,
-  and gates merge on any REFUTED claim or any safety claim with no adverse-state test.
+  and gates merge on any REFUTED claim. This recipe never gathers dynamic adverse-state evidence, so
+  it declares its ledger run `probe_scope: "out-of-scope"`: a safety claim with no adverse-state test
+  is surfaced as an ADVISORY reason, not a BLOCK (dynamic probing was never in this run's mandate).
 version: "0.1.0"
 tags: ["claim-guard", "verification", "gate", "adversarial", "review", "staged", "approval-gates"]
 
@@ -43,7 +45,10 @@ tags: ["claim-guard", "verification", "gate", "adversarial", "review", "staged",
 # ------------------------------------------------------------------------------
 
 context:
-  run_id: ""                       # ledger run scope; if empty, the ledger tool derives a stable id
+  run_id: ""                       # ledger run scope; if empty, this recipe establishes one itself
+                                    # (Stage -1 "start-run") declaring probe_scope="out-of-scope" --
+                                    # this recipe is the static-only MVP and never gathers dynamic
+                                    # adverse-state evidence (see docs/tool-claim-ledger-contract.md)
   changeset: ""                    # diff / PR ref / branch range under review
   commit_messages: ""              # git log text for the changeset
   design_docs: ""                  # linked design/spec doc paths or inline text (claim sources)
@@ -53,6 +58,38 @@ context:
   max_rounds: 3                    # debate-loop cap (HONORED BY THE CONCIERGE, not this recipe)
 
 stages:
+
+  # === Stage -1: START RUN — establish (or reuse) the ledger run ==============
+  # Declares probe_scope="out-of-scope" when THIS recipe establishes its own run: this
+  # recipe is the static-only MVP and never gathers dynamic adverse-state evidence (no
+  # DTU standup, no probe-designer/pen-tester), so gate limb 2 (safety claim with no
+  # adverse-state test) must not BLOCK on an absence this run never had the mandate to
+  # fill -- it is surfaced as an advisory reason instead (see docs/
+  # tool-claim-ledger-contract.md). If a run_id was already supplied (e.g. a concierge
+  # session already called `start_run` itself per skills/claim-guard-review before
+  # invoking this recipe), that run and its own declared probe_scope are reused as-is --
+  # this step never overwrites an externally-established run.
+  - name: "start"
+    steps:
+      - id: "start-run"
+        agent: "self"
+        prompt: |
+          Current run_id context value: "{{run_id}}"
+
+          If that value is NON-EMPTY, a run_id was already supplied by the caller (e.g. a
+          concierge session that already called claim_ledger "start_run" itself). Do NOT call
+          start_run again -- just return that exact run_id unchanged, verbatim, with no other
+          text.
+
+          If that value is EMPTY, this recipe must establish its own run. Call the claim_ledger
+          tool, operation "start_run", with:
+            gate_policy: "{{gate_policy}}"
+            probe_scope: "out-of-scope"
+
+          Then return ONLY the raw `run_id` string the tool returned -- no JSON, no markdown,
+          no other text, no explanation. Just the run_id value itself.
+        output: "run_id"
+        timeout: 120
 
   # === Stage 0: SCOPE — neutral, judgment-free digest ========================
   - name: "scope"
@@ -239,6 +276,38 @@ stages:
         output: "roster"
         timeout: 120
 
+      # Declare the resolved roster to the LEDGER (distinct from the `roster` output above,
+      # which is this recipe's own resolution scratch value) -- this is what makes gate limb 4c
+      # (lens-coverage-gap / roster-inconsistency / no-roster-declared) live for this run. The
+      # bench is deliberately the 4 static lenses this recipe actually fans out below --
+      # correspondence-auditor + test-correspondence-auditor mandatory, chokepoint-mapper +
+      # boundary-adversary conditional -- and NEVER pen-tester/empirical-verifier, which this
+      # static-only recipe never runs and would therefore mint a PERMANENT, unclosable
+      # lens-coverage-gap on every safety/quantitative claim.
+      - id: "declare-roster"
+        agent: "self"
+        prompt: |
+          Call the claim_ledger tool, operation "declare_roster", for run_id={{run_id}}:
+            mandatory: ["correspondence-auditor", "test-correspondence-auditor"]
+            conditional:
+              chokepoint-mapper:
+                types: ["safety"]
+                included: {{roster.include_chokepoint_mapper}}
+                reason: "{{roster.chokepoint_mapper_reason}}"
+              boundary-adversary:
+                types: ["quantitative"]
+                included: {{roster.include_boundary_adversary}}
+                reason: "{{roster.boundary_adversary_reason}}"
+
+          Do NOT include pen-tester, empirical-verifier, or any dynamic-probing lens in this
+          roster -- this recipe is the static-only MVP (probe_scope="out-of-scope") and never
+          runs one; rostering it here would mint a permanent, unclosable lens-coverage-gap on
+          every eligible claim.
+
+          Return ONLY the JSON the tool returns.
+        output: "roster_declaration"
+        timeout: 120
+
   # === Stage 3: STATIC-VERIFY FAN-OUT — cold, independent ====================
   # Each lens reads the ledger claims + the changeset digest ONLY. No lens prompt references another
   # lens's output. Each records its verdicts back to the ledger via claim_ledger "record_verdict".
@@ -317,6 +386,7 @@ stages:
           verified what in Round 1.
 
           Resolved roster: {{roster}}
+          Declared to the ledger (declare_roster result): {{roster_declaration}}
           Round-1 lens returns:
             correspondence-auditor:      {{r1_correspondence}}
             test-correspondence-auditor: {{r1_test_correspondence}}
@@ -350,14 +420,20 @@ stages:
           aggregation and the BLOCK/PASS/INDETERMINATE verdict; you only render what it returns.
 
           Then call claim_ledger "render_matrix" (run_id={{run_id}}, format="markdown") and print the
-          matrix and the coverage line (claims harvested / verified / probed / deferred / waived)
-          verbatim.
+          matrix and the coverage line (claims harvested / verified / lens_covered / probed /
+          deferred / waived / advisory) verbatim.
 
           Reminder of the gate rule the tool enforces (BLOCK if any):
             1. any claim aggregates to REFUTED;
-            2. any safety claim with no adverse-state test that fails on violation;
+            2. any safety claim with no adverse-state test that fails on violation --
+               EXCEPT under this run's declared probe_scope="out-of-scope" (this recipe is the
+               static-only MVP), where such a claim is surfaced as an ADVISORY reason instead
+               (`unprobed-safety-claim:<claim_id>` in `advisory_reasons`) and never blocks;
             3. any UNTESTABLE claim with no recorded human waiver;
-            4. any lens errored / no structured verdict -> INDETERMINATE (never PASS);
+            4. any lens errored / no structured verdict, OR a rostered lens left no trace on a
+               claim (`lens-coverage-gap`), OR a lens verdicted a claim it was not rostered for
+               (`roster-inconsistency`), OR the run never declared a roster at all
+               (`no-roster-declared`) -> INDETERMINATE (never PASS);
             5. zero claims harvested -> INDETERMINATE (never PASS).
         output: "gate_result"
         timeout: 120
@@ -389,12 +465,16 @@ stages:
         timeout: 120
 
 # Outputs:
-#   changeset_digest  — neutral map of the change
-#   claim_ledger      — the UNIONed, typed claim set (explicit ∪ implicit)
-#   roster            — resolved bench + conditional-lens inclusion reasons
-#   manifest          — roster manifest (who verified what)
-#   gate_result       — the claim-verification matrix + deterministic gate verdict
-#   final_summary     — the terminal static verdict for the human
+#   run_id             — the ledger run scope (established Stage -1, or reused if supplied)
+#   changeset_digest   — neutral map of the change
+#   claim_ledger       — the UNIONed, typed claim set (explicit ∪ implicit)
+#   roster             — resolved bench + conditional-lens inclusion reasons (this recipe's own
+#                        resolution scratch value)
+#   roster_declaration — the declare_roster tool result (what was actually declared to the ledger)
+#   manifest           — roster manifest (who verified what)
+#   gate_result        — the claim-verification matrix + deterministic gate verdict (includes
+#                        advisory_reasons and ledger_path)
+#   final_summary      — the terminal static verdict for the human
 #
 # The debate-to-consensus loop and the attributed, dissent-preserving synthesis are CONCIERGE-OWNED
 # (skills/claim-guard-review). Run this recipe for the guaranteed cold fan-out + deterministic gate; invoke

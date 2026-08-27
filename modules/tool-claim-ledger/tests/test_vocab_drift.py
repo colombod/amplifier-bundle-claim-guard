@@ -19,7 +19,6 @@ same change, and re-run.
 from __future__ import annotations
 
 import pytest
-
 from amplifier_module_tool_claim_ledger.identity import (
     _FILLERS,
     _NEVER_STRIP,

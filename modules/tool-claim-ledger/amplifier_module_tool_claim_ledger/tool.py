@@ -16,13 +16,32 @@ _OPERATIONS = sorted(HANDLERS.keys())
 class ClaimLedgerTool:
     """Deterministic claim ledger for the claim-guard adversarial claim-verification gate.
 
-    Dispatches on `operation`. Persists to <repo>/<run_dir>/<run_id>/ledger.json where
-    <repo> is the tool's working directory at execute time. Never writes elsewhere.
+    Dispatches on `operation`. Persists to <repo_root>/<run_dir>/<run_id>/ledger.json.
+    Never writes elsewhere.
+
+    `repo_root` is resolved ONCE, at construction time (i.e. once per mount / per
+    session) -- not re-derived from `Path.cwd()` on every call. Real runs often
+    execute from an ephemeral or container cwd (DTU, /tmp); re-deriving `Path.cwd()`
+    on every `execute()` call means the only durable artifact of a run -- including a
+    BLOCK verdict -- can die with that cwd, and cross-call cwd drift can split one
+    run across two different confinement roots. Resolving once and holding it on the
+    instance eliminates both failure modes for the lifetime of this tool instance.
+
+    `repo_root` is overridable via config (same pattern as `run_dir`) so a run
+    executing inside a container can be pointed at a stable mounted path instead of
+    the container's (ephemeral) cwd. Defaults to `Path.cwd()` at construction time
+    when not configured.
     """
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         config = config or {}
         self.run_dir = config.get("run_dir", ".claim-guard")
+        repo_root_override = config.get("repo_root")
+        self.repo_root: Path = (
+            Path(repo_root_override).expanduser().resolve()
+            if repo_root_override
+            else Path.cwd()
+        )
 
     @property
     def name(self) -> str:
@@ -33,30 +52,50 @@ class ClaimLedgerTool:
         return (
             "Deterministic claim ledger for the adversarial claim-verification gate. "
             "Dispatched by `operation`: add_claim, list_claims, record_verdict, "
-            "record_lens_error, record_debate, waive, record_probe, defer_claim, "
-            "graduate_test, aggregate, gate, render_matrix, start_run, add_claims, "
-            "report, list_runs. Persists to <repo>/<run_dir>/<run_id>/ledger.json -- "
-            "the only write capability in the gate session. Computes worst-wins "
-            "aggregation and the gate verdict as pure, deterministic functions -- "
-            "never via LLM judgment -- and structurally enforces file:line evidence "
-            "anchors and an evidence ratchet so a REFUTED verdict cannot be talked "
-            "away without new evidence. Phase-2 probing coverage (record_probe/"
-            "defer_claim/graduate_test) is honest: only graduate_test (full criteria "
-            "met) or record_verdict's adverse_state_test clear gate limb 2 for a "
-            "safety claim -- a SURVIVED-but-ungraduated probe or a deferred claim "
-            "still blocks. record_lens_error makes a crashed lens observable to gate "
-            "limb 4 (distinct from a merely-PENDING claim) without ever fabricating "
-            "a verdict. start_run/add_claims/report are thin conveniences over the "
-            "same handlers -- they never bypass validation: start_run explicitly "
-            "creates a run without adding a claim first; add_claims bulk-adds a "
-            "`claims` array in one call (isolating per-element failures in `errors` "
-            "without dropping the rest of the batch); report returns gate + "
-            "render_matrix's combined output in one round trip. list_runs is "
-            "read-only and takes no run_id: it enumerates every run under the "
-            "confinement root and flags STRANDED runs -- ones with claims but at "
-            "least one still PENDING (no verdict), i.e. harvested-but-unverdicted "
-            "-- so an abandoned run is a queryable state rather than a silent drop; "
-            "pass stranded_only to filter to just those runs."
+            "record_lens_error, declare_roster, record_debate, waive, record_probe, "
+            "defer_claim, graduate_test, aggregate, gate, render_matrix, start_run, "
+            "add_claims, report, list_runs. Persists to "
+            "<repo_root>/<run_dir>/<run_id>/ledger.json -- the only write capability "
+            "in the gate session, written atomically (temp file + fsync + os.replace) "
+            "so a crash mid-write can never corrupt or truncate a run's only durable "
+            "record. `repo_root` is resolved ONCE at construction (config-overridable), "
+            "never re-derived from cwd per call, and every run's resolved "
+            "`ledger_root`/`ledger_path` is persisted into the run record itself and "
+            "returned by start_run/gate/report -- so a BLOCK verdict is never "
+            "presented without also saying where its only durable record lives. "
+            "Computes worst-wins aggregation and the gate verdict as pure, "
+            "deterministic functions -- never via LLM judgment -- and structurally "
+            "enforces file:line evidence anchors and an evidence ratchet so a "
+            "REFUTED verdict cannot be talked away without new evidence. Phase-2 "
+            "probing coverage (record_probe/defer_claim/graduate_test) is honest: "
+            "only graduate_test (full criteria met) or record_verdict's "
+            "adverse_state_test clear gate limb 2 for a safety claim -- a "
+            "SURVIVED-but-ungraduated probe or a deferred claim still blocks. "
+            "record_lens_error makes a crashed lens observable to gate limb 4 "
+            "(distinct from a merely-PENDING claim) without ever fabricating a "
+            "verdict. declare_roster records the run's expected-lens POLICY once; "
+            "the ledger derives, per claim, exactly which lenses are expected (from "
+            "claim.type + the policy) and the gate reports any rostered lens that "
+            "left no trace as lens-coverage-gap, any off-roster verdict as "
+            "roster-inconsistency, and any run that never declared a roster as "
+            "no-roster-declared -- all three INDETERMINATE, never a rejected "
+            "verdict. `probe_scope` (set on start_run, default 'in-scope') governs "
+            "whether gate limb 2 BLOCKs ('in-scope') or is merely surfaced as an "
+            "advisory reason on `advisory_reasons` ('out-of-scope', for a "
+            "static-only run that never had the mandate to gather dynamic "
+            "adverse-state evidence) -- either way it never fabricates a verdict "
+            "for claims outside its scope. start_run/add_claims/report are thin "
+            "conveniences over the same handlers -- they never bypass validation: "
+            "start_run explicitly creates a run without adding a claim first; "
+            "add_claims bulk-adds a `claims` array in one call (isolating "
+            "per-element failures in `errors` without dropping the rest of the "
+            "batch); report returns gate + render_matrix's combined output in one "
+            "round trip. list_runs is read-only and takes no run_id: it enumerates "
+            "every run under the confinement root and flags STRANDED runs -- ones "
+            "with claims but at least one still PENDING (no verdict), i.e. "
+            "harvested-but-unverdicted -- so an abandoned run is a queryable state "
+            "rather than a silent drop; pass stranded_only to filter to just those "
+            "runs."
         )
 
     @property
@@ -188,6 +227,38 @@ class ClaimLedgerTool:
                     "enum": ["advisory", "blocking-with-waiver", "blocking"],
                     "description": "gate: policy override (defaults to the run's stored policy).",
                 },
+                "probe_scope": {
+                    "type": "string",
+                    "enum": ["in-scope", "out-of-scope"],
+                    "description": (
+                        "start_run: whether dynamic probing is in scope for this "
+                        "run (default 'in-scope'). 'out-of-scope' (a static-only "
+                        "run, e.g. the verify-claims MVP) downgrades gate limb 2 "
+                        "(safety claim with no adverse-state test) from a BLOCK "
+                        "to an advisory reason -- see gate's advisory_reasons."
+                    ),
+                },
+                "mandatory": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "declare_roster: lens names expected on EVERY claim regardless "
+                        "of type. MAY be empty (the explicit opt-out -- see conditional)."
+                    ),
+                },
+                "conditional": {
+                    "type": "object",
+                    "description": (
+                        "declare_roster: { <lens>: { types: [claim_type,...], "
+                        "included: bool, reason: str } }. `included` and `reason` "
+                        "are both required whether including or excluding a lens -- "
+                        "exclusion is an auditable decision, not a silent drop."
+                    ),
+                },
+                "declared_by": {
+                    "type": "string",
+                    "description": "declare_roster: free-form provenance (optional).",
+                },
                 "format": {
                     "type": "string",
                     "enum": ["markdown", "json"],
@@ -250,7 +321,7 @@ class ClaimLedgerTool:
                 },
             )
 
-        store = LedgerStore(repo_root=Path.cwd(), run_dir=self.run_dir)
+        store = LedgerStore(repo_root=self.repo_root, run_dir=self.run_dir)
         try:
             result = handler(store, input_data)
         except WriteConfinementError as exc:

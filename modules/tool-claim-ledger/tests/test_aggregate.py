@@ -114,4 +114,6 @@ def test_compute_coverage_counts() -> None:
         "probed": 1,
         "deferred": 1,
         "waived": 1,
+        "lens_expected": None,
+        "lens_covered": None,
     }

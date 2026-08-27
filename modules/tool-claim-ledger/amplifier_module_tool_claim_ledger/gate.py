@@ -5,7 +5,14 @@ See docs/tool-claim-ledger-contract.md "The gate rule (deterministic)".
 verdict = BLOCK if any:
   1. any claim aggregate == REFUTED
   2. any safety claim has adverse_state_test.exists == false (independent of limb 1)
-  3. any claim aggregate == UNTESTABLE with no waiver (policy-dependent)
+     -- but ONLY when the run's `probe_scope` is "in-scope" (the default). A run
+     that declares `probe_scope: "out-of-scope"` (a static-only run, e.g. the
+     `verify-claims` MVP) never had the mandate to gather dynamic adverse-state
+     evidence, so this limb does not block it: the claim is instead surfaced as
+     an advisory reason "unprobed-safety-claim:<claim_id>" on the new
+     `advisory_reasons` list, and never affects the verdict. Waiver behavior is
+     unchanged in BOTH modes -- a waived safety claim clears this limb either way.
+  3. any claim aggregate == UNTESTABLE with no recorded `waiver` (policy-dependent)
 
 verdict = INDETERMINATE (never PASS) if any:
   4. any claim is PENDING (missing verdict), or any lens recorded an error via
@@ -17,6 +24,13 @@ verdict = INDETERMINATE (never PASS) if any:
      a lens-error alone even when the claim already has other lenses' verdicts
      (that claim's aggregate is unaffected by the error -- see module docstring
      note below).
+  4c. (roster coverage, additive -- see roster.py) a rostered lens left no trace
+     (no verdict, no lens error) on a claim it was expected on --
+     "lens-coverage-gap:<lens>@<claim_id>"; or a lens left a trace on a claim it
+     was NOT expected on -- "roster-inconsistency:<lens>@<claim_id>"; or the run
+     harvested claims but never declared a roster -- "no-roster-declared" (an
+     undeclared roster is unknown coverage, not full coverage; suppressed when
+     harvested == 0, since zero-claims-harvested already covers that run).
   5. zero claims harvested
 
 Otherwise verdict = PASS.
@@ -47,14 +61,18 @@ from __future__ import annotations
 from typing import Any
 
 from .aggregate import compute_coverage
+from .roster import compute_roster_coverage
 
 _POLICIES = {"advisory", "blocking-with-waiver", "blocking"}
 _SAFETY_TYPES = {"safety"}
+_PROBE_SCOPES = {"in-scope", "out-of-scope"}
 
 
 def compute_gate(run_record: dict[str, Any], gate_policy: str) -> dict[str, Any]:
     claims = run_record.get("claims", [])
     harvested = len(claims)
+    roster = run_record.get("roster")
+    probe_scope = run_record.get("probe_scope") or "in-scope"
 
     indeterminate_reasons: list[str] = []
     if harvested == 0:
@@ -67,6 +85,21 @@ def compute_gate(run_record: dict[str, Any], gate_policy: str) -> dict[str, Any]
                 f"lens-error:{lens_error['lens']}@{claim['claim_id']}"
             )
 
+    # Limb 4c -- roster coverage (additive; see roster.py). Never touches limbs
+    # 1-3 or worst-wins: a coverage gap turns the RUN into INDETERMINATE, it
+    # never rewrites a claim's aggregate.
+    roster_coverage = compute_roster_coverage(claims, roster)
+    if harvested > 0 and not roster_coverage["declared"]:
+        indeterminate_reasons.append("no-roster-declared")
+    for gap in roster_coverage["gaps"]:
+        indeterminate_reasons.append(
+            f"lens-coverage-gap:{gap['lens']}@{gap['claim_id']}"
+        )
+    for inconsistency in roster_coverage["inconsistencies"]:
+        indeterminate_reasons.append(
+            f"roster-inconsistency:{inconsistency['lens']}@{inconsistency['claim_id']}"
+        )
+
     def waived_clears(claim: dict[str, Any]) -> bool:
         return claim.get("waiver") is not None and gate_policy == "blocking-with-waiver"
 
@@ -77,6 +110,7 @@ def compute_gate(run_record: dict[str, Any], gate_policy: str) -> dict[str, Any]
     # identical to the old flat-list logic -- only how those trips are grouped
     # and ordered for the reader changes.
     reasons_by_claim: dict[str, list[str]] = {}
+    advisory_reasons: list[str] = []
 
     def _trip(claim: dict[str, Any], reason: str) -> None:
         reasons_by_claim.setdefault(claim["claim_id"], []).append(reason)
@@ -87,12 +121,21 @@ def compute_gate(run_record: dict[str, Any], gate_policy: str) -> dict[str, Any]
             _trip(claim, "REFUTED")
 
     # Limb 2 -- safety claim with no adverse-state test. Independent of limb 1: a
-    # CONFIRMED safety claim with no adverse-state test still blocks.
+    # CONFIRMED safety claim with no adverse-state test still blocks -- but ONLY
+    # under probe_scope == "in-scope" (the default). Under "out-of-scope" (a
+    # static-only run that never had the mandate to gather dynamic evidence),
+    # the same gap is surfaced as an advisory reason instead, and never touches
+    # the verdict. Waiver clears this limb identically in both modes.
     for claim in claims:
         if claim.get("type") in _SAFETY_TYPES:
             adverse_state_test = claim.get("adverse_state_test") or {}
             if not adverse_state_test.get("exists") and not waived_clears(claim):
-                _trip(claim, "no-adverse-state-test")
+                if probe_scope == "out-of-scope":
+                    advisory_reasons.append(
+                        f"unprobed-safety-claim:{claim['claim_id']}"
+                    )
+                else:
+                    _trip(claim, "no-adverse-state-test")
 
     # Limb 3 -- UNTESTABLE with no waiver. Computed regardless of policy so `advisory`
     # can report it; the policy only controls whether it produces a final BLOCK.
@@ -134,7 +177,8 @@ def compute_gate(run_record: dict[str, Any], gate_policy: str) -> dict[str, Any]
     else:
         verdict = "PASS"
 
-    coverage = compute_coverage(claims)
+    coverage = compute_coverage(claims, roster)
+    coverage["advisory"] = len(advisory_reasons)
 
     return {
         "ok": True,
@@ -143,9 +187,14 @@ def compute_gate(run_record: dict[str, Any], gate_policy: str) -> dict[str, Any]
         "blocking_claims": blocking_claims,
         "blocking_summary": blocking_summary,
         "indeterminate_reasons": indeterminate_reasons,
+        "advisory_reasons": advisory_reasons,
         "coverage": coverage,
     }
 
 
 def validate_gate_policy(gate_policy: str) -> bool:
     return gate_policy in _POLICIES
+
+
+def validate_probe_scope(probe_scope: str) -> bool:
+    return probe_scope in _PROBE_SCOPES

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from amplifier_module_tool_claim_ledger.ops import (
     op_add_claim,
+    op_declare_roster,
     op_gate,
     op_list_runs,
     op_record_verdict,
@@ -20,10 +21,17 @@ from amplifier_module_tool_claim_ledger.ops import (
 )
 from amplifier_module_tool_claim_ledger.store import LedgerStore
 
+# This file exercises gate-invocation persistence and is deliberately
+# indifferent to the roster-coverage limb (4c, see test_roster_coverage.py) --
+# every run declares the empty-roster opt-out so the new `no-roster-declared`
+# backward-compat signal never masks what this file is actually testing.
+_EMPTY_ROSTER = {"mandatory": [], "conditional": {}}
+
 
 def _confirmed_run(store: LedgerStore) -> tuple[str, str]:
     """A run with a single CONFIRMED (non-safety) claim -- gates PASS."""
     run_id = op_start_run(store, {})["run_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     added = op_add_claim(
         store,
         {
@@ -51,6 +59,7 @@ def _confirmed_run(store: LedgerStore) -> tuple[str, str]:
 def _refuted_run(store: LedgerStore) -> tuple[str, str]:
     """A run with a single REFUTED claim -- gates BLOCK."""
     run_id = op_start_run(store, {})["run_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     added = op_add_claim(
         store,
         {
@@ -154,6 +163,7 @@ def test_list_runs_surfaces_gate_history_for_gated_run(store: LedgerStore) -> No
 
 def test_list_runs_reflects_last_of_multiple_invocations(store: LedgerStore) -> None:
     run_id = op_start_run(store, {})["run_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     added = op_add_claim(
         store,
         {

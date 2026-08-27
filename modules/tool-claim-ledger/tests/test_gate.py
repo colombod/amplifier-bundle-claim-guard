@@ -6,12 +6,19 @@ from __future__ import annotations
 
 from amplifier_module_tool_claim_ledger.ops import (
     op_add_claim,
+    op_declare_roster,
     op_gate,
     op_record_verdict,
     op_start_run,
     op_waive,
 )
 from amplifier_module_tool_claim_ledger.store import LedgerStore
+
+# This file exercises gate limbs 1-3 and is deliberately indifferent to the
+# roster-coverage limb (4c, see test_roster_coverage.py) -- every run declares
+# the empty-roster opt-out so the new `no-roster-declared` backward-compat
+# signal never masks the limb this file is actually testing.
+_EMPTY_ROSTER = {"mandatory": [], "conditional": {}}
 
 
 def _add(
@@ -21,6 +28,7 @@ def _add(
         store, {"run_id": run_id, "text": text, "type": claim_type, "source": source}
     )
     assert result["ok"] is True
+    op_declare_roster(store, {"run_id": result["run_id"], **_EMPTY_ROSTER})
     return result["claim_id"]
 
 
@@ -116,6 +124,7 @@ def test_limb1_any_refuted_blocks(store: LedgerStore) -> None:
         },
     )
     run_id, claim_id = added["run_id"], added["claim_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     _refute(
         store,
         run_id,
@@ -153,6 +162,7 @@ def test_limb2_confirmed_safety_claim_without_adverse_state_test_still_blocks_b4
         },
     )
     run_id, claim_id = added["run_id"], added["claim_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     _confirm(store, run_id, claim_id, "correspondence-auditor", "registry.py:648")
 
     result = op_gate(store, {"run_id": run_id})
@@ -179,6 +189,7 @@ def test_limb2_clears_when_adverse_state_test_exists(store: LedgerStore) -> None
         },
     )
     run_id, claim_id = added["run_id"], added["claim_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     result = op_record_verdict(
         store,
         {
@@ -214,6 +225,7 @@ def test_limb3_untestable_blocks_under_blocking_with_waiver_by_default(
         },
     )
     run_id, claim_id = added["run_id"], added["claim_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     result = op_record_verdict(
         store,
         {
@@ -251,6 +263,7 @@ def test_limb3_waiver_clears_under_blocking_with_waiver(store: LedgerStore) -> N
         },
     )
     run_id, claim_id = added["run_id"], added["claim_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     op_record_verdict(
         store,
         {
@@ -291,6 +304,7 @@ def test_waiver_does_not_clear_under_blocking_policy(store: LedgerStore) -> None
         },
     )
     run_id, claim_id = added["run_id"], added["claim_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     op_record_verdict(
         store,
         {
@@ -327,6 +341,7 @@ def test_untestable_is_reported_not_blocked_under_advisory(store: LedgerStore) -
         },
     )
     run_id, claim_id = added["run_id"], added["claim_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     op_record_verdict(
         store,
         {
@@ -361,6 +376,7 @@ def test_advisory_never_blocks_even_with_refuted_claim(store: LedgerStore) -> No
         },
     )
     run_id, claim_id = added["run_id"], added["claim_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     _refute(
         store,
         run_id,
@@ -387,6 +403,7 @@ def test_all_confirmed_no_safety_no_untestable_passes(store: LedgerStore) -> Non
         },
     )
     run_id, claim_id = added["run_id"], added["claim_id"]
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
     _confirm(store, run_id, claim_id, "correspondence-auditor", "sort.py:12")
 
     gate_result = op_gate(store, {"run_id": run_id})

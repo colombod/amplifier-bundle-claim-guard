@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from amplifier_module_tool_claim_ledger.ops import (
     op_add_claim,
+    op_declare_roster,
     op_gate,
     op_record_lens_error,
     op_record_verdict,
@@ -25,6 +26,13 @@ from amplifier_module_tool_claim_ledger.ops import (
     op_start_run,
 )
 from amplifier_module_tool_claim_ledger.store import LedgerStore
+
+# This file exercises gate limb 4 (claim-pending / lens-error) and is
+# deliberately indifferent to the roster-coverage limb (4c, see
+# test_roster_coverage.py) -- every run declares the empty-roster opt-out so
+# the new `no-roster-declared` backward-compat signal never masks the limb
+# this file is actually testing.
+_EMPTY_ROSTER = {"mandatory": [], "conditional": {}}
 
 
 def _add(store: LedgerStore, **overrides: object) -> tuple[str, str]:
@@ -38,6 +46,7 @@ def _add(store: LedgerStore, **overrides: object) -> tuple[str, str]:
     payload.update(overrides)
     added = op_add_claim(store, payload)
     assert added["ok"] is True
+    op_declare_roster(store, {"run_id": added["run_id"], **_EMPTY_ROSTER})
     return added["run_id"], added["claim_id"]
 
 
