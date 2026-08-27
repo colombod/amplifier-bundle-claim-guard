@@ -126,10 +126,13 @@ durable record lives.
 
 ## Operations
 
-All operations take `run_id` (string). `start_run` is the **sole** way to obtain one — an
-empty/missing `run_id` on `add_claim` or `add_claims` is rejected loudly (`invalid_input`),
-never silently forked into a fresh run. Every operation returns
-`{ "ok": true, ... }` or `{ "ok": false, "error": "<code>", "message": "<human>" }`.
+All operations take `run_id` (string). `start_run` is the **sole** way to obtain one, and is
+the one operation for which `run_id` is *optional* on input (see `start_run` below for its
+resume/create/mint semantics). For every other operation, `run_id` must name a run that
+already exists: an empty/missing `run_id` on `add_claim` or `add_claims` is rejected loudly
+(`invalid_input`), and a non-empty `run_id` naming no existing run is likewise rejected loudly
+(`run_not_found`) — neither case is ever silently forked into a fresh, different run. Every
+operation returns `{ "ok": true, ... }` or `{ "ok": false, "error": "<code>", "message": "<human>" }`.
 
 **17 ops total.** Thirteen primitives (below, including `declare_roster`), plus four
 **concierge ops** — `start_run`, `add_claims`, `report`, `list_runs` — which are thin
@@ -153,6 +156,10 @@ verdicts).
 - **out:** `{ ok, claim_id, run_id, was_new }`
 - Computes the stable `claim_id` (below). Sets `probe_eligibility` from `type`:
   `safety|quantitative|temporal|concurrency` → `eligible`; `correspondence|coverage` → `not_eligible`.
+- **rejects:** `invalid_input` for an empty/missing `run_id` (or missing `text`/`type`/`source`);
+  `run_not_found` for a non-empty `run_id` that names no existing run. Neither case creates a
+  run — the sanctioned flow is `start_run` (optionally at a caller-chosen id, see below) THEN
+  `add_claim`/`add_claims`; there is no auto-create-on-add path.
 
 ### `list_claims`
 - **in:** `{ run_id, type?, aggregate? }` (optional filters)
@@ -329,36 +336,67 @@ every run is queryable without hand-driving the primitives. Each reuses an exist
 validation verbatim — none adds a rule, and none can be used to bypass one.
 
 ### `start_run`
-Explicitly create a new run and return its `run_id`, without adding a claim first — the **sole**
-way to obtain a `run_id` (`add_claim`/`add_claims` reject an empty/missing one loudly rather
-than auto-creating a run). Uses `new_run_id()` + `_new_run_record()` + `save()` directly, and
-`validate_gate_policy`/`validate_probe_scope` for rejecting an unknown policy/scope.
+Explicitly create — or resume — a run and return its `run_id`, without adding a claim first —
+the **sole** way to obtain a `run_id` (`add_claim`/`add_claims` reject an empty/missing OR
+unknown one loudly rather than auto-creating a run). `run_id` is **optional** on input, and its
+presence/absence selects one of three behaviors:
 
-- **in:** `{ gate_policy?, probe_scope? }` — `gate_policy` defaults to `blocking-with-waiver`;
-  `probe_scope` defaults to `"in-scope"` (see "The gate rule" below)
-- **out:** `{ ok, run_id, gate_policy, probe_scope, ledger_path }`
-- **rejects:** `invalid_input` — `unknown gate_policy: <value>` or `unknown probe_scope: <value>`
-  (nothing written)
+1. **omitted/empty** — mint one via `new_run_id()` (unchanged from before this was
+   configurable): the sole way to obtain a brand-new, uniquely-named run.
+2. **provided, and a run already exists at that id** — **RESUME** it: return the existing
+   run's own `run_id`/`gate_policy`/`probe_scope`/`ledger_path` as-is. This never resets or
+   overwrites the run's `claims`, `gate_policy`, `probe_scope`, or `roster` — any
+   `gate_policy`/`probe_scope` passed on *this* call are ignored, since the run already has its
+   own. Lets a recipe/caller re-establish a handle on a run it (or another session) already
+   opened, idempotently, without risking a wipe.
+3. **provided, and no run exists at that id** — create a new run AT that id, using this call's
+   `gate_policy`/`probe_scope`, via the same `_new_run_record()` + `save()` path used for a
+   minted id.
 
-The agent never fabricates or guesses a `run_id`; it asks for one.
+A caller-supplied `run_id` is validated with the **same** sanitizer/confinement rules every
+other op already applies (`store.load()` resolves it through `sanitize_run_id()` internally,
+reused verbatim — not reimplemented): an invalid id raises `WriteConfinementError`, which
+surfaces as the tool's existing `write_confinement_violation` error (the same shape any other
+op already produces for a malformed/malicious `run_id`); nothing is written.
+`validate_gate_policy`/`validate_probe_scope` still reject an unknown policy/scope on the
+mint/create-at-id paths (irrelevant, and skipped, on resume).
+
+- **in:** `{ run_id?, gate_policy?, probe_scope? }` — `gate_policy` defaults to
+  `blocking-with-waiver`; `probe_scope` defaults to `"in-scope"` (see "The gate rule" below)
+- **out:** `{ ok, run_id, gate_policy, probe_scope, ledger_path, resumed }` — `resumed` is
+  `true` only for case 2 above
+- **rejects:** `invalid_input` — `unknown gate_policy: <value>` or `unknown probe_scope:
+  <value>` (mint/create-at-id paths only; nothing written); `write_confinement_violation` for
+  an invalid caller-supplied `run_id` (nothing written)
+
+The agent never fabricates or guesses a `run_id` on the mint path; it asks for one — but may
+now also pass one explicitly to resume or establish a specific run by id (e.g. one keyed to a
+work-tracker item or PR number).
 
 ### `add_claims`
 Bulk-add a harvested batch, reusing `add_claim`'s validation (and its stable-`claim_id`
 idempotency) for **each** element.
 
-- **in:** `{ run_id?, claims: [ { text, type, source, inferred, basis?, quote? }, … ] }`
-  — `claims` must be a **non-empty array**
+- **in:** `{ run_id, claims: [ { text, type, source, inferred, basis?, quote? }, … ] }`
+  — `claims` must be a **non-empty array**; `run_id` must name an existing run (see `start_run`)
 - **out:** `{ ok, run_id, results: [ { claim_id, was_new } ], added, updated, errors: [ { index, error, message } ] }`
-- **rejects (whole call):** `invalid_input` — `claims must be a non-empty array`
+- **rejects (whole call, nothing written, batch never iterated):** `invalid_input` — `claims must
+  be a non-empty array`, or an empty/missing `run_id`; `run_not_found` — a non-empty `run_id`
+  naming no existing run
 
 Two behaviours worth stating explicitly:
 
-- **`run_id` is threaded from the first successful add.** Pass `run_id: ""` (or omit it) and the
-  first element creates the run via `add_claim`'s own auto-create path; every later element reuses
-  that same run_id. One call bulk-adds into a fresh run.
+- **`run_id` must already exist — checked ONCE, up front, for the whole batch.** An empty/missing
+  `run_id` is `invalid_input`; a non-empty `run_id` naming no existing run is `run_not_found` —
+  either way the WHOLE call is rejected before any element is processed (symmetric with
+  `add_claim`'s own per-call rejection, and with the `run_not_found` shape `record_verdict`/`gate`
+  already use). There is no auto-create path: the sanctioned flow is `start_run` (optionally at a
+  caller-chosen id) THEN `add_claims`.
 - **A malformed element does NOT abort the batch.** It is recorded in `errors` (with its `index`)
   and the remaining elements still land. One bad element among N valid ones must never drop the
-  rest — a silently truncated harvest would read downstream as a smaller, cleaner changeset.
+  rest — a silently truncated harvest would read downstream as a smaller, cleaner changeset. This
+  is distinct from the run_id check above: an element's own bad shape (e.g. missing `source`) is
+  a per-element problem, not a whole-batch one.
 
 ### `report`
 One-call gate verdict **plus** the rendered matrix. A thin composition of `gate` + `render_matrix`

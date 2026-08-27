@@ -231,3 +231,46 @@ def test_invalid_input_missing_fields_rejected(store: LedgerStore) -> None:
     )
     assert result["ok"] is False
     assert result["error"] == "invalid_input"
+
+
+def test_add_claim_with_unknown_non_empty_run_id_is_rejected_not_forked(
+    store: LedgerStore,
+) -> None:
+    """Issue #11: a non-empty run_id that names no existing run must be
+    rejected with run_not_found (symmetric with op_record_verdict) -- never
+    silently forked into a fresh orphan run via the old auto-create path."""
+    result = op_add_claim(
+        store,
+        {
+            "run_id": "run_never_started",
+            "text": "returns sorted output",
+            "type": "correspondence",
+            "source": "pr-body",
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "run_not_found"
+    # Nothing was created at all -- not the requested id, not anything else.
+    assert store.list_run_ids() == []
+
+
+def test_add_claim_after_start_run_then_add_is_the_sanctioned_flow(
+    store: LedgerStore,
+) -> None:
+    """Happy path: start_run then add_claim still works exactly as before."""
+    run_id = op_start_run(store, {})["run_id"]
+
+    result = op_add_claim(
+        store,
+        {
+            "run_id": run_id,
+            "text": "returns sorted output",
+            "type": "correspondence",
+            "source": "pr-body",
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["run_id"] == run_id
+    assert result["was_new"] is True

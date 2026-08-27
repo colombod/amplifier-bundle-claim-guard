@@ -120,9 +120,16 @@ def op_add_claim(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
 
     run_record = store.load(run_id)
     if run_record is None:
-        run_record = _new_run_record(
-            run_id, data.get("gate_policy") or "blocking-with-waiver", store
-        )
+        # A non-empty but unknown run_id is a caller error, not an invitation
+        # to silently fork a fresh orphan run -- symmetric with
+        # op_record_verdict's run_not_found. The sanctioned flow is start_run
+        # (optionally at a caller-chosen id, see op_start_run) THEN add_claim/
+        # add_claims; auto-create-on-add is not supported.
+        return {
+            "ok": False,
+            "error": "run_not_found",
+            "message": f"no run found for run_id={run_id!r}",
+        }
 
     key = identity_key(text, claim_type, source)
     base_id = compute_claim_id(text, claim_type, source)
@@ -836,15 +843,36 @@ def op_render_matrix(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]
 
 
 def op_start_run(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
-    """Explicitly create a new run, without adding a claim first.
+    """Explicitly create -- or resume -- a run, without adding a claim first.
 
     The sole way to obtain a run_id: `op_add_claim` and `op_add_claims` no
     longer auto-create a run on an empty/omitted `run_id` -- they reject it
     loudly instead (closing a silent-fork seam where a claim meant for an
-    already-open run could land on a fresh, different one). Uses
-    `store.new_run_id()` + `_new_run_record()` + `store.save()` directly, and
-    `validate_gate_policy` for rejecting an unknown policy. Callers must call
+    already-open run could land on a fresh, different one). Callers must call
     this first and pass the returned `run_id` to every subsequent op.
+
+    An optional caller-supplied `run_id` selects among three behaviors:
+
+    - **omitted/empty** -- mint one via `store.new_run_id()` (unchanged from
+      before this was configurable).
+    - **provided, and a run already exists at that id** -- RESUME it: return
+      the existing `run_id`/`gate_policy`/`probe_scope`/`ledger_path` as-is.
+      This never resets or overwrites the run's claims, `gate_policy`,
+      `probe_scope`, or `roster` -- any `gate_policy`/`probe_scope` passed on
+      *this* call are ignored, since the run already has its own. This lets a
+      recipe/caller re-establish a handle on a run it (or another session)
+      already opened, idempotently.
+    - **provided, and no run exists at that id** -- create a new run AT that
+      id (using this call's `gate_policy`/`probe_scope`), via the same
+      `_new_run_record()` + `store.save()` path used for a minted id.
+
+    A caller-supplied `run_id` is validated with the SAME sanitizer/confinement
+    rules every other op already applies (`store.load()` resolves the id via
+    `store.ledger_file()` -> `store.run_path()` -> `store.sanitize_run_id()`
+    internally) -- an invalid id raises `WriteConfinementError`, which
+    `ClaimLedgerTool.execute()` already converts to the existing
+    `write_confinement_violation` error shape used for any other op given a
+    malformed/malicious run_id. Nothing is written for an invalid id.
 
     Resolves the confinement/ledger root ONCE here (via `store`, which itself
     resolved `repo_root` once at tool-construction time -- see `ClaimLedgerTool`)
@@ -856,6 +884,32 @@ def op_start_run(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
     record and read by gate limb 2 (see gate.py). Backward-compat: omitted ->
     "in-scope" -> current blocking behavior unchanged.
     """
+    requested_run_id = data.get("run_id")
+
+    if requested_run_id:
+        # store.load() runs the SAME sanitizer/confinement check every other
+        # op relies on (via ledger_file -> run_path -> sanitize_run_id) --
+        # reused verbatim, not reimplemented. An invalid id raises
+        # WriteConfinementError here, uncaught, exactly like any other op that
+        # loads/saves with a bad run_id; ClaimLedgerTool.execute() is what
+        # turns that into the write_confinement_violation ToolResult.
+        existing_run_record = store.load(requested_run_id)
+        if existing_run_record is not None:
+            # RESUME -- never reset/overwrite claims, gate_policy,
+            # probe_scope, or roster. This call's gate_policy/probe_scope (if
+            # any) are ignored; the run keeps what it already has.
+            return {
+                "ok": True,
+                "run_id": requested_run_id,
+                "gate_policy": existing_run_record.get("gate_policy"),
+                "probe_scope": existing_run_record.get("probe_scope", "in-scope"),
+                "ledger_path": existing_run_record.get("ledger_path"),
+                "resumed": True,
+            }
+        run_id = requested_run_id
+    else:
+        run_id = None  # minted below, after gate_policy/probe_scope validate
+
     gate_policy = data.get("gate_policy") or "blocking-with-waiver"
     if not validate_gate_policy(gate_policy):
         return {
@@ -872,7 +926,9 @@ def op_start_run(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
             "message": f"unknown probe_scope: {probe_scope!r}",
         }
 
-    run_id = store.new_run_id()
+    if run_id is None:
+        run_id = store.new_run_id()
+
     run_record = _new_run_record(run_id, gate_policy, store, probe_scope)
     store.save(run_id, run_record)
     return {
@@ -881,6 +937,7 @@ def op_start_run(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
         "gate_policy": gate_policy,
         "probe_scope": probe_scope,
         "ledger_path": run_record["ledger_path"],
+        "resumed": False,
     }
 
 
@@ -889,11 +946,17 @@ def op_add_claims(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
 
     Requires an explicit, non-empty `run_id` obtained from `start_run` --
     rejects the WHOLE batch up front (writes nothing, does not iterate) if
-    `run_id` is empty or omitted, symmetric with `op_add_claim`'s own
-    rejection. This closes the silent-fork seam for batch adds the same way
-    it's closed for single adds: no auto-created run on a missing run_id. A
-    malformed element is recorded in `errors` and does NOT abort the batch --
-    one bad element among N valid ones must not drop the rest.
+    `run_id` is empty/omitted (`invalid_input`) or does not name an existing
+    run (`run_not_found`), symmetric with `op_add_claim`'s own rejections.
+    This closes the silent-fork seam for batch adds the same way it's closed
+    for single adds: no auto-created run on a missing OR unknown run_id. The
+    unknown-run_id check happens once, up front, rather than once per element
+    -- a systemically bad run_id would otherwise repeat the same
+    `run_not_found` in every element of `errors` instead of failing the call
+    the same way `op_gate`/`op_record_verdict` already do. A malformed
+    *element* (bad claim shape) is still recorded in per-element `errors` and
+    does NOT abort the batch -- one bad element among N valid ones must not
+    drop the rest.
     """
     claims = data.get("claims")
     if not isinstance(claims, list) or not claims:
@@ -909,6 +972,13 @@ def op_add_claims(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
             "ok": False,
             "error": "invalid_input",
             "message": "run_id is required",
+        }
+
+    if store.load(run_id) is None:
+        return {
+            "ok": False,
+            "error": "run_not_found",
+            "message": f"no run found for run_id={run_id!r}",
         }
 
     results: list[dict[str, Any]] = []

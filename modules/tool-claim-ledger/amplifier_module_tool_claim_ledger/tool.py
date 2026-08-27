@@ -111,10 +111,17 @@ class ClaimLedgerTool:
                 "run_id": {
                     "type": "string",
                     "description": (
-                        "Run identifier. Required for every operation, including "
-                        "add_claim and add_claims -- obtain one from start_run first. "
-                        "An empty/omitted run_id is rejected (invalid_input); it is "
-                        "never silently derived into a new, different run."
+                        "Run identifier. Required for every operation except "
+                        "start_run, including add_claim and add_claims -- obtain one "
+                        "from start_run first. An empty/omitted run_id on add_claim/"
+                        "add_claims is rejected (invalid_input); a non-empty run_id "
+                        "with no existing run is rejected (run_not_found) -- neither "
+                        "is ever silently forked into a new run. start_run's own "
+                        "run_id is OPTIONAL: omitted mints a fresh id; a caller-"
+                        "supplied id resumes that run if it already exists (claims/"
+                        "policy/roster untouched) or creates a new run at that id "
+                        "if it does not; an invalid id is rejected as "
+                        "write_confinement_violation."
                     ),
                 },
                 "claim_id": {
