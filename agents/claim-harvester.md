@@ -125,19 +125,30 @@ mistyped as `safety` costs at most one extra probe; a safety claim mistyped as `
 silently exempts itself from the "must have an adverse-state test" gate limb. Bias toward the
 stricter limb.
 
-## Output — record each claim to the ledger
+## Output — record ALL your claims to the ledger in ONE call
 
-For every claim, call the `claim_ledger` tool with `operation: "add_claim"` and this shape:
+Record your **entire** harvest with a **single** `claim_ledger` call,
+`operation: "add_claims"`, passing every claim as one element of the `claims` array:
 
 ```json
 {
-  "text": "<mechanism_symbol> <controlled_verb> <controlled_property_object>  (the RIGID template — never the author's own words)",
-  "type": "the type fixed by the cell's property (see the contract table) — do NOT re-type freehand",
-  "source": "commit <sha> | spec:<path>#<anchor> | docstring:<file>:<line> | comment:<file>:<line> | pr-body",
-  "inferred": false,
-  "quote": "the verbatim source line + any cell-mismatch note — this free-form field carries the specificity the template omits (NOT hashed)"
+  "claims": [
+    {
+      "text": "<mechanism_symbol> <controlled_verb> <controlled_property_object>  (the RIGID template — never the author's own words)",
+      "type": "the type fixed by the cell's property (see the contract table) — do NOT re-type freehand",
+      "source": "commit <sha> | spec:<path>#<anchor> | docstring:<file>:<line> | comment:<file>:<line> | pr-body",
+      "inferred": false,
+      "quote": "the verbatim source line + any cell-mismatch note — this free-form field carries the specificity the template omits (NOT hashed)"
+    }
+  ]
 }
 ```
+
+Each element keeps exactly the claim shape above — the bulk call changes **how many calls you make**,
+never what a claim is. **Never hand-loop raw `add_claim`, once per claim** — driving the ledger
+op-by-op is how a harvest gets half-recorded and a run gets fudged. A malformed element is reported
+back in `errors` and never aborts the rest of the batch, so one bad claim costs you that claim, not
+the harvest.
 
 `inferred: false` always — you harvest what is *stated*. Implicit claims are purpose-inquisitor's
 job, and the two lists are UNIONed downstream, never intersected.

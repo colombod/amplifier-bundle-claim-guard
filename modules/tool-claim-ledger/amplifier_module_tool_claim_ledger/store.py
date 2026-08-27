@@ -9,6 +9,7 @@ even if the sanitizer is ever loosened.
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
 from pathlib import Path
@@ -30,6 +31,15 @@ class LedgerStore:
 
     def _confinement_root(self) -> Path:
         return (self.repo_root / self.run_dir_name).resolve()
+
+    def confinement_root(self) -> Path:
+        """Public accessor for the resolved directory that scopes every write.
+
+        Callers persist this (see `ledger_root` in the run record) so a run's
+        durable location is self-describing rather than re-derivable only by
+        re-running the (possibly different) cwd resolution that created it.
+        """
+        return self._confinement_root()
 
     def sanitize_run_id(self, run_id: str) -> str:
         if not run_id or not _RUN_ID_SAFE.match(run_id):
@@ -58,9 +68,30 @@ class LedgerStore:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def save(self, run_id: str, record: dict[str, Any]) -> None:
+        """Atomically write the run record to ledger.json.
+
+        A run's ledger is the only durable artifact of a claim-guard run --
+        including a BLOCK verdict -- so a crash mid-write must never leave a
+        truncated or corrupted `ledger.json` behind. Writes go to a temp file
+        in the SAME directory first, are flushed and `fsync`'d to disk, and
+        are then moved into place via `os.replace` -- atomic on POSIX, so any
+        reader always sees either the prior complete file or the new complete
+        file, never a partial one. The temp file is removed on any failure
+        before the replace.
+        """
         path = self.ledger_file(run_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(record, indent=2, sort_keys=False), encoding="utf-8")
+        tmp_path = path.parent / f"{path.name}.tmp"
+        content = json.dumps(record, indent=2, sort_keys=False)
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
     def new_run_id(self) -> str:
         return "run_" + uuid.uuid4().hex[:8]

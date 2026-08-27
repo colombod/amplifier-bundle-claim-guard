@@ -61,7 +61,7 @@ To count, a test must:
 - **assert the specific violation the claim forbids** (corruption / loss / inversion / staleness),
   going RED when that violation occurs — not merely asserting liveness or a happy-path outcome.
 
-## The F-2 rule — when you cannot trace, escalate to human
+## When you cannot trace, escalate to human
 
 If LSP test-tracing is **unavailable** for this language/repo (no server, unsupported language,
 cross-process boundary you cannot follow statically), you **cannot** confirm that a present test
@@ -93,7 +93,7 @@ the gate's second limb can read it:
   Set `adverse_state_test.exists=true` with the `test_ref`.
 - **REFUTED** — a test claims to cover this but certifies the wrong thing (pattern 1 or 2). Cite the
   assertion and the path gap. Set `exists=false`.
-- **UNTESTABLE** — cannot be settled statically (F-2). Set `exists=false`, reason as above.
+- **UNTESTABLE** — cannot be settled statically. Set `exists=false`, reason as above.
 
 For any **safety** claim, `adverse_state_test.exists=false` is what trips gate limb 2 — a BLOCK even
 if correspondence CONFIRMS. That is the point of this lens.

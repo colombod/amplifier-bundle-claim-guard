@@ -16,6 +16,7 @@ import pytest
 
 from amplifier_module_tool_claim_ledger.ops import (
     op_add_claim,
+    op_declare_roster,
     op_defer_claim,
     op_gate,
     op_graduate_test,
@@ -33,6 +34,13 @@ _FULL_STANDING_TEST = {
     "deterministic_runs": 3,
 }
 
+# This file exercises Phase-2 probing coverage ops and is deliberately
+# indifferent to the roster-coverage limb (4c, see test_roster_coverage.py) --
+# every run declares the empty-roster opt-out so the new `no-roster-declared`
+# backward-compat signal never masks the gate limb (1-3) this file is
+# actually testing.
+_EMPTY_ROSTER = {"mandatory": [], "conditional": {}}
+
 
 def _add_safety_claim(store: LedgerStore) -> tuple[str, str]:
     run_id = op_start_run(store, {})["run_id"]
@@ -46,6 +54,7 @@ def _add_safety_claim(store: LedgerStore) -> tuple[str, str]:
         },
     )
     assert added["ok"] is True
+    op_declare_roster(store, {"run_id": added["run_id"], **_EMPTY_ROSTER})
     return added["run_id"], added["claim_id"]
 
 
@@ -494,6 +503,8 @@ def test_coverage_counters_reflect_probed_and_deferred_claims(
         },
     )
     untouched_claim_id = untouched_added["claim_id"]
+
+    op_declare_roster(store, {"run_id": run_id, **_EMPTY_ROSTER})
 
     op_record_probe(
         store,

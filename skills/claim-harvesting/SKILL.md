@@ -53,7 +53,7 @@ Discard prose that asserts nothing testable ("cleaned up", "improved readability
 ## The claim contract (shared source of truth — both harvesters obey it)
 
 > This is the **single contract** the `claim-harvester` and `purpose-inquisitor` both follow, and it
-> is co-designed with the ledger's `normalize_text` (the stable-`claim_id` hash, F-9). It exists so
+> is co-designed with the ledger's `normalize_text` (the stable-`claim_id` hash). It exists so
 > the *same* underlying claim decomposes and phrases the *same* way every run — otherwise it hashes
 > to a different id and the run-to-run matrix diff breaks. **Do not let this drift from the
 > normalizer:** the boilerplate you omit here is exactly what the normalizer strips; the
@@ -131,7 +131,7 @@ predicate **and** the claim `type` simultaneously:
   `integrity`, `writes`, `inversion`, `state`, `quantity`, `effects`, `behavior`.
 - **`<mechanism_symbol>`** is the exact diff symbol. Backtick it or not — the normalizer folds a
   backticked span and a bare `snake_case`/`camelCase` token to the same code token, so both converge.
-- **Type is fixed by the property**, per the table's `type` column. The safety-typing bias (F-8) is
+- **Type is fixed by the property**, per the table's `type` column. The safety-typing bias is
   expressed *through the property choice*: if the forbidden violation is a corruption / loss /
   inversion harm, pick that property → the type is `safety` automatically. Do not re-decide the type
   freehand — the id hash includes `type`, so free-typed variance would fork the id.
@@ -161,7 +161,7 @@ Instead, for each occupied cell, run this short pass **before** `add_claim`:
 Two runs that reach the same cell therefore emit the same three tokens and the same type → the same
 `claim_id`, by construction.
 
-### Suppression guard (the R-1 flip side — do not let the grid drop a real claim)
+### Suppression guard (the over-collapse flip side — do not let the grid drop a real claim)
 
 The grid's risk is the mirror of over-collapse: a real claim lost because no cell was drawn for it.
 Two mandatory safeguards:
@@ -173,7 +173,7 @@ Two mandatory safeguards:
   an eighth property (that reintroduces the variance this rule exists to remove), and do not discard
   it as "doesn't fit."
 
-### R-6 — this contract and the normalizer are bound by a test
+### This contract and the normalizer are bound by a test
 
 The controlled verb set, property-object set, property→type map, negation/bound tokens, and
 boilerplate phrases above are **mirrored and asserted** in
@@ -185,7 +185,7 @@ change**, or the drift guard fails. Residual prose that still uses negation (`no
 human edit at Gate A — keeps those controlled tokens, and the normalizer's `_NEVER_STRIP` guard
 protects them.
 
-## Typing — and the safety bias (F-8)
+## Typing — and the safety bias
 
 Type each claim: `correspondence | safety | quantitative | temporal | concurrency | coverage`. The
 type drives lens routing, probe eligibility, and the gate's second limb.
@@ -195,7 +195,7 @@ won't, never, no <bad thing>, guard, ensure no, refuse* — default it to `safet
 costs one extra probe; a safety claim mistyped as `correspondence` silently escapes the strongest
 gate limb. Bias toward the stricter limb.
 
-## The zero-claim rule (S-8)
+## The zero-claim rule
 
 If you find no claims, say so explicitly — never invent them. A zero-claim harvest becomes an
 **INDETERMINATE** gate result, never a PASS. An empty checklist is a harvest failure, not a clean

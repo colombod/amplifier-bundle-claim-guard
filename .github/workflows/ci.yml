@@ -1,8 +1,9 @@
 name: CI
 
 # Enforce the bundle's own rigor on every push / PR: the tool-claim-ledger test
-# suite (worst-wins aggregation, file:line evidence enforcement, the R-1 over-collapse
-# tripwire, the R-6 prompt<->normalizer drift guard, the lens-error/limb-4 tests) plus
+# suite (worst-wins aggregation, file:line evidence enforcement, the claim-id
+# over-collapse tripwire, the prompt<->normalizer drift guard, the lens-error/limb-4
+# tests) plus
 # the harvest-stability harness self-check, plus lint.
 
 on:

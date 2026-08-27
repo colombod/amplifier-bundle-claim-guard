@@ -12,9 +12,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .aggregate import compute_aggregate, compute_coverage
-from .gate import compute_gate, validate_gate_policy
+from .gate import compute_gate, validate_gate_policy, validate_probe_scope
 from .identity import compute_claim_id, identity_key, normalize_text, repo_relpath_of
 from .matrix import render_json, render_markdown
+from .roster import expected_lenses, validate_roster
 from .store import LedgerStore
 
 _VALID_VERDICTS = {"CONFIRMED", "REFUTED", "UNTESTABLE", "N/A"}
@@ -28,15 +29,40 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _new_run_record(run_id: str, gate_policy: str) -> dict[str, Any]:
+def _new_run_record(
+    run_id: str,
+    gate_policy: str,
+    store: LedgerStore,
+    probe_scope: str = "in-scope",
+) -> dict[str, Any]:
+    """Create a new run record, persisting the resolved absolute ledger location.
+
+    `ledger_root`/`ledger_path` are computed ONCE here, at run-creation time, from
+    the store's own resolved confinement root -- and then persisted inside the
+    record itself. This is the durability fix: the only durable artifact of a run
+    (this ledger file) now carries its own absolute location, so a caller (or a
+    human debugging a BLOCK verdict after the fact) never has to re-derive "where
+    did this write" from a cwd that may no longer exist or may have drifted
+    between calls.
+
+    `probe_scope` ("in-scope" default | "out-of-scope") governs whether gate
+    limb 2 (safety claim with no adverse-state test) BLOCKs or is merely
+    surfaced as an advisory reason -- see gate.py. A run that never sets it
+    (e.g. `add_claim`'s auto-create path) gets the backward-compatible default.
+    """
     return {
         "run_id": run_id,
         "gate_policy": gate_policy,
+        "probe_scope": probe_scope,
         "created_at": _now_iso(),
+        "ledger_root": str(store.confinement_root()),
+        "ledger_path": str(store.ledger_file(run_id)),
         "claims": [],
         "debate": [],
         "rejections": [],
         "gates": [],
+        "roster": None,
+        "roster_history": [],
     }
 
 
@@ -94,9 +120,16 @@ def op_add_claim(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
 
     run_record = store.load(run_id)
     if run_record is None:
-        run_record = _new_run_record(
-            run_id, data.get("gate_policy") or "blocking-with-waiver"
-        )
+        # A non-empty but unknown run_id is a caller error, not an invitation
+        # to silently fork a fresh orphan run -- symmetric with
+        # op_record_verdict's run_not_found. The sanctioned flow is start_run
+        # (optionally at a caller-chosen id, see op_start_run) THEN add_claim/
+        # add_claims; auto-create-on-add is not supported.
+        return {
+            "ok": False,
+            "error": "run_not_found",
+            "message": f"no run found for run_id={run_id!r}",
+        }
 
     key = identity_key(text, claim_type, source)
     base_id = compute_claim_id(text, claim_type, source)
@@ -361,6 +394,77 @@ def op_record_lens_error(store: LedgerStore, data: dict[str, Any]) -> dict[str, 
     }
 
 
+def op_declare_roster(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
+    """Declare the run-level roster POLICY the gate derives per-claim expected
+    lenses from (closes the silent lens-coverage hole -- see roster.py).
+
+    Structurally rejects (writes nothing) on any validation failure from
+    `validate_roster`. On success, replaces the run's `roster` wholesale,
+    pushing any prior roster to `roster_history` (append-only, oldest first) so
+    a mid-run re-declaration is visible rather than a silent overwrite.
+    Re-declaration is a supported, expected operation, not a workaround.
+
+    Never rejects a lens's verdict for being "off-roster" -- that is
+    `record_verdict`'s job to never do (a roster typo must never discard a
+    real adversarial finding); this op only ever writes the policy itself.
+    """
+    run_id = data.get("run_id")
+    if not run_id:
+        return {"ok": False, "error": "invalid_input", "message": "run_id is required"}
+
+    run_record = store.load(run_id)
+    if run_record is None:
+        return {
+            "ok": False,
+            "error": "run_not_found",
+            "message": f"no run found for run_id={run_id!r}",
+        }
+
+    validation_error = validate_roster(data)
+    if validation_error is not None:
+        return {"ok": False, "error": "invalid_input", "message": validation_error}
+
+    conditional = data.get("conditional") or {}
+    new_roster = {
+        "mandatory": list(data.get("mandatory") or []),
+        "conditional": {
+            lens: {
+                "types": list(cond.get("types") or []),
+                "included": cond.get("included"),
+                "reason": cond.get("reason"),
+            }
+            for lens, cond in conditional.items()
+        },
+        "declared_by": data.get("declared_by"),
+        "declared_at": _now_iso(),
+    }
+
+    prior_roster = run_record.get("roster")
+    replaced = prior_roster is not None
+    if replaced:
+        run_record.setdefault("roster_history", []).append(prior_roster)
+    run_record["roster"] = new_roster
+
+    store.save(run_id, run_record)
+
+    expected = [
+        {
+            "claim_id": claim["claim_id"],
+            "type": claim["type"],
+            "expected_lenses": expected_lenses(claim, new_roster),
+        }
+        for claim in run_record.get("claims", [])
+    ]
+
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "roster": new_roster,
+        "expected": expected,
+        "replaced": replaced,
+    }
+
+
 def op_record_debate(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
     run_id = data.get("run_id")
     round_no = data.get("round")
@@ -397,10 +501,30 @@ def op_record_debate(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]
 
 
 def op_waive(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
+    """Record a named human waiver on a claim.
+
+    A REFUTED claim cannot be waived by the same one-liner as an UNTESTABLE
+    one -- that would let a demonstrably FALSE claim be cleared as quietly as
+    an inconclusive one, defeating the evidence ratchet at the waiver seam.
+    Before writing anything, this recomputes the claim's current aggregate
+    with the SAME `compute_aggregate` the gate uses (never the possibly-stale
+    `claim["aggregate"]` field). If that aggregate is `REFUTED`, the caller
+    must pass `acknowledge_refuted=true` -- omitting it REFUSES the waive
+    (`refuted_waiver_requires_ack`) and writes NOTHING to the ledger. When the
+    ack is given, the waiver is written and the acknowledgment itself is
+    persisted on the waiver record (`waiver.acknowledge_refuted = true`) so a
+    refuted-claim waiver is always auditable after the fact.
+
+    For any non-REFUTED aggregate (UNTESTABLE, CONFIRMED, N/A, PENDING),
+    behavior is completely unchanged -- no ack required, `by`+`reason` alone
+    still waive it. `gate.py`'s `waived_clears()` is untouched: enforcement
+    lives here, at the waiver-writing seam, not in the gate's read path.
+    """
     run_id = data.get("run_id")
     claim_id = data.get("claim_id")
     by = data.get("by")
     reason = data.get("reason")
+    acknowledge_refuted = bool(data.get("acknowledge_refuted", False))
 
     if not run_id or not claim_id or not by or not reason:
         return {
@@ -425,7 +549,20 @@ def op_waive(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
             "message": f"no claim {claim_id!r} in run {run_id!r}",
         }
 
+    current_aggregate = compute_aggregate(claim["verdicts"])
+    if current_aggregate == "REFUTED" and not acknowledge_refuted:
+        return {
+            "ok": False,
+            "error": "refuted_waiver_requires_ack",
+            "message": (
+                f"claim {claim_id!r} is REFUTED; waiving a refuted claim "
+                "requires acknowledge_refuted=true"
+            ),
+        }
+
     waiver = {"by": by, "reason": reason, "at": _now_iso()}
+    if current_aggregate == "REFUTED":
+        waiver["acknowledge_refuted"] = True
     claim["waiver"] = waiver
     store.save(run_id, run_record)
     return {"ok": True, "claim_id": claim_id, "waiver": waiver}
@@ -661,7 +798,7 @@ def op_aggregate(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
         }
         for c in run_record["claims"]
     ]
-    coverage = compute_coverage(run_record["claims"])
+    coverage = compute_coverage(run_record["claims"], run_record.get("roster"))
     return {"ok": True, "run_id": run_id, "claims": claims_view, "coverage": coverage}
 
 
@@ -704,6 +841,10 @@ def op_gate(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
     )
     store.save(run_id, run_record)
 
+    # Surface the durable location of this run's ledger (persisted at run-creation
+    # time -- see `_new_run_record`) so a BLOCK verdict is never presented without
+    # also telling the caller where its only durable record lives.
+    gate_result["ledger_path"] = run_record.get("ledger_path")
     return gate_result
 
 
@@ -735,16 +876,73 @@ def op_render_matrix(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]
 
 
 def op_start_run(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
-    """Explicitly create a new run, without adding a claim first.
+    """Explicitly create -- or resume -- a run, without adding a claim first.
 
     The sole way to obtain a run_id: `op_add_claim` and `op_add_claims` no
     longer auto-create a run on an empty/omitted `run_id` -- they reject it
     loudly instead (closing a silent-fork seam where a claim meant for an
-    already-open run could land on a fresh, different one). Uses
-    `store.new_run_id()` + `_new_run_record()` + `store.save()` directly, and
-    `validate_gate_policy` for rejecting an unknown policy. Callers must call
+    already-open run could land on a fresh, different one). Callers must call
     this first and pass the returned `run_id` to every subsequent op.
+
+    An optional caller-supplied `run_id` selects among three behaviors:
+
+    - **omitted/empty** -- mint one via `store.new_run_id()` (unchanged from
+      before this was configurable).
+    - **provided, and a run already exists at that id** -- RESUME it: return
+      the existing `run_id`/`gate_policy`/`probe_scope`/`ledger_path` as-is.
+      This never resets or overwrites the run's claims, `gate_policy`,
+      `probe_scope`, or `roster` -- any `gate_policy`/`probe_scope` passed on
+      *this* call are ignored, since the run already has its own. This lets a
+      recipe/caller re-establish a handle on a run it (or another session)
+      already opened, idempotently.
+    - **provided, and no run exists at that id** -- create a new run AT that
+      id (using this call's `gate_policy`/`probe_scope`), via the same
+      `_new_run_record()` + `store.save()` path used for a minted id.
+
+    A caller-supplied `run_id` is validated with the SAME sanitizer/confinement
+    rules every other op already applies (`store.load()` resolves the id via
+    `store.ledger_file()` -> `store.run_path()` -> `store.sanitize_run_id()`
+    internally) -- an invalid id raises `WriteConfinementError`, which
+    `ClaimLedgerTool.execute()` already converts to the existing
+    `write_confinement_violation` error shape used for any other op given a
+    malformed/malicious run_id. Nothing is written for an invalid id.
+
+    Resolves the confinement/ledger root ONCE here (via `store`, which itself
+    resolved `repo_root` once at tool-construction time -- see `ClaimLedgerTool`)
+    and persists the resolved absolute `ledger_path` into the run record before
+    returning it to the caller, so the caller always learns where the only
+    durable record of this run lives.
+
+    `probe_scope` ("in-scope" default | "out-of-scope") is persisted on the run
+    record and read by gate limb 2 (see gate.py). Backward-compat: omitted ->
+    "in-scope" -> current blocking behavior unchanged.
     """
+    requested_run_id = data.get("run_id")
+
+    if requested_run_id:
+        # store.load() runs the SAME sanitizer/confinement check every other
+        # op relies on (via ledger_file -> run_path -> sanitize_run_id) --
+        # reused verbatim, not reimplemented. An invalid id raises
+        # WriteConfinementError here, uncaught, exactly like any other op that
+        # loads/saves with a bad run_id; ClaimLedgerTool.execute() is what
+        # turns that into the write_confinement_violation ToolResult.
+        existing_run_record = store.load(requested_run_id)
+        if existing_run_record is not None:
+            # RESUME -- never reset/overwrite claims, gate_policy,
+            # probe_scope, or roster. This call's gate_policy/probe_scope (if
+            # any) are ignored; the run keeps what it already has.
+            return {
+                "ok": True,
+                "run_id": requested_run_id,
+                "gate_policy": existing_run_record.get("gate_policy"),
+                "probe_scope": existing_run_record.get("probe_scope", "in-scope"),
+                "ledger_path": existing_run_record.get("ledger_path"),
+                "resumed": True,
+            }
+        run_id = requested_run_id
+    else:
+        run_id = None  # minted below, after gate_policy/probe_scope validate
+
     gate_policy = data.get("gate_policy") or "blocking-with-waiver"
     if not validate_gate_policy(gate_policy):
         return {
@@ -753,10 +951,27 @@ def op_start_run(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
             "message": f"unknown gate_policy: {gate_policy!r}",
         }
 
-    run_id = store.new_run_id()
-    run_record = _new_run_record(run_id, gate_policy)
+    probe_scope = data.get("probe_scope") or "in-scope"
+    if not validate_probe_scope(probe_scope):
+        return {
+            "ok": False,
+            "error": "invalid_input",
+            "message": f"unknown probe_scope: {probe_scope!r}",
+        }
+
+    if run_id is None:
+        run_id = store.new_run_id()
+
+    run_record = _new_run_record(run_id, gate_policy, store, probe_scope)
     store.save(run_id, run_record)
-    return {"ok": True, "run_id": run_id, "gate_policy": gate_policy}
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "gate_policy": gate_policy,
+        "probe_scope": probe_scope,
+        "ledger_path": run_record["ledger_path"],
+        "resumed": False,
+    }
 
 
 def op_add_claims(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
@@ -764,11 +979,17 @@ def op_add_claims(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
 
     Requires an explicit, non-empty `run_id` obtained from `start_run` --
     rejects the WHOLE batch up front (writes nothing, does not iterate) if
-    `run_id` is empty or omitted, symmetric with `op_add_claim`'s own
-    rejection. This closes the silent-fork seam for batch adds the same way
-    it's closed for single adds: no auto-created run on a missing run_id. A
-    malformed element is recorded in `errors` and does NOT abort the batch --
-    one bad element among N valid ones must not drop the rest.
+    `run_id` is empty/omitted (`invalid_input`) or does not name an existing
+    run (`run_not_found`), symmetric with `op_add_claim`'s own rejections.
+    This closes the silent-fork seam for batch adds the same way it's closed
+    for single adds: no auto-created run on a missing OR unknown run_id. The
+    unknown-run_id check happens once, up front, rather than once per element
+    -- a systemically bad run_id would otherwise repeat the same
+    `run_not_found` in every element of `errors` instead of failing the call
+    the same way `op_gate`/`op_record_verdict` already do. A malformed
+    *element* (bad claim shape) is still recorded in per-element `errors` and
+    does NOT abort the batch -- one bad element among N valid ones must not
+    drop the rest.
     """
     claims = data.get("claims")
     if not isinstance(claims, list) or not claims:
@@ -784,6 +1005,13 @@ def op_add_claims(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
             "ok": False,
             "error": "invalid_input",
             "message": "run_id is required",
+        }
+
+    if store.load(run_id) is None:
+        return {
+            "ok": False,
+            "error": "run_not_found",
+            "message": f"no run found for run_id={run_id!r}",
         }
 
     results: list[dict[str, Any]] = []
@@ -916,7 +1144,9 @@ def op_report(store: LedgerStore, data: dict[str, Any]) -> dict[str, Any]:
         "blocking_claims": gate_result["blocking_claims"],
         "blocking_summary": gate_result["blocking_summary"],
         "indeterminate_reasons": gate_result["indeterminate_reasons"],
+        "advisory_reasons": gate_result["advisory_reasons"],
         "coverage": gate_result["coverage"],
+        "ledger_path": gate_result.get("ledger_path"),
         "matrix": matrix_result["content"],
     }
 
@@ -926,6 +1156,7 @@ HANDLERS = {
     "list_claims": op_list_claims,
     "record_verdict": op_record_verdict,
     "record_lens_error": op_record_lens_error,
+    "declare_roster": op_declare_roster,
     "record_debate": op_record_debate,
     "waive": op_waive,
     "record_probe": op_record_probe,

@@ -22,7 +22,7 @@ predicate (verb+object, the claim minus its leading symbol) is moderately stable
 (~0.55). This script therefore gates on:
 
   * PRIMARY: `concern_type_overlap` (mean pairwise Jaccard over claim `type`) meeting
-    `--min-concern-overlap`, AND the four incident blockers (B-1..B-4) caught every run.
+    `--min-concern-overlap`, AND the four incident blockers caught every run.
   * INDICATIVE (reported, not gating by default): exact claim_id Jaccard, claim_id
     stability, predicate overlap, symbol overlap, and claim-count dispersion. These
     diagnose drift and regressions but free-form harvest is not expected to clear a
@@ -32,7 +32,7 @@ predicate (verb+object, the claim minus its leading symbol) is moderately stable
     `--min-jaccard`/`--min-id-stability` instead of concern-type overlap.
 
 Because claim_id is computed by the SAME identity.py the ledger uses, this script also
-detects prompt<->normalizer drift (spec risk R-6): if the agents drift from the canonical
+detects prompt<->normalizer drift: if the agents drift from the canonical
 form the normalizer expects, id-stability (still reported, indicative) drops here.
 
 Usage
@@ -41,7 +41,7 @@ Usage
     # (PRIMARY gate: concern-type overlap + blockers; exact-id metrics are indicative):
     python scripts/harvest_stability.py run1/ledger.json run2/ledger.json ... \\
         [--min-concern-overlap 0.8] \\
-        [--require-blocker B-1 --require-blocker B-2 ...] [--json]
+        [--require-blocker degraded-boot --require-blocker cap-inversion ...] [--json]
 
     # Re-enable the original strict exact-claim_id bar on demand:
     python scripts/harvest_stability.py run1/ledger.json ... \\
@@ -426,13 +426,13 @@ def _selftest() -> int:
         ok = False
 
     # Blocker guardrail: present in every run vs missing from one.
-    every = [[{"text": "B-1 leak"}], [{"label": "b-1"}]]
-    missing = [[{"text": "B-1 leak"}], [{"text": "unrelated"}]]
-    if not blockers_caught_every_run(every, ["B-1"])["B-1"]:
-        print("FAIL: B-1 present in all runs should pass")
+    every = [[{"text": "degraded-boot leak"}], [{"label": "Degraded-Boot"}]]
+    missing = [[{"text": "degraded-boot leak"}], [{"text": "unrelated"}]]
+    if not blockers_caught_every_run(every, ["degraded-boot"])["degraded-boot"]:
+        print("FAIL: blocker present in all runs should pass")
         ok = False
-    if blockers_caught_every_run(missing, ["B-1"])["B-1"]:
-        print("FAIL: B-1 missing from a run should fail")
+    if blockers_caught_every_run(missing, ["degraded-boot"])["degraded-boot"]:
+        print("FAIL: blocker missing from a run should fail")
         ok = False
 
     # --- Coarse concern-overlap metrics ---------------------
@@ -591,7 +591,7 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="TAG",
-        help="a blocker tag that must appear in every run (repeatable), e.g. B-1",
+        help="a blocker tag that must appear in every run (repeatable), e.g. degraded-boot",
     )
     parser.add_argument("--json", action="store_true", help="emit the report as JSON")
     parser.add_argument(

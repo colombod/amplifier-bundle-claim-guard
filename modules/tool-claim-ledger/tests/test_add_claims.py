@@ -179,3 +179,59 @@ def test_missing_claims_key_rejected(store: LedgerStore) -> None:
     result = op_add_claims(store, {})
     assert result["ok"] is False
     assert result["error"] == "invalid_input"
+
+
+def test_unknown_non_empty_run_id_on_add_claims_is_rejected_not_forked(
+    store: LedgerStore,
+) -> None:
+    """Issue #11: a non-empty run_id naming no existing run rejects the WHOLE
+    batch up front (run_not_found) -- checked once, not once per element --
+    and creates no run at all, symmetric with add_claim's own rejection."""
+    result = op_add_claims(
+        store,
+        {
+            "run_id": "run_never_started",
+            "claims": [
+                {
+                    "text": "claim one",
+                    "type": "correspondence",
+                    "source": "docstring:a.py:1",
+                },
+                {
+                    "text": "claim two",
+                    "type": "correspondence",
+                    "source": "docstring:b.py:2",
+                },
+            ],
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "run_not_found"
+    assert store.list_run_ids() == []
+
+
+def test_add_claims_after_start_run_is_the_sanctioned_flow(
+    store: LedgerStore,
+) -> None:
+    """Happy path: start_run then add_claims still works exactly as before."""
+    run_id = op_start_run(store, {})["run_id"]
+
+    result = op_add_claims(
+        store,
+        {
+            "run_id": run_id,
+            "claims": [
+                {
+                    "text": "claim one",
+                    "type": "correspondence",
+                    "source": "docstring:a.py:1",
+                },
+            ],
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["run_id"] == run_id
+    assert result["added"] == 1
+    assert result["errors"] == []

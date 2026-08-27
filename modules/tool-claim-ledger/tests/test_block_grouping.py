@@ -15,11 +15,18 @@ from __future__ import annotations
 
 from amplifier_module_tool_claim_ledger.ops import (
     op_add_claim,
+    op_declare_roster,
     op_gate,
     op_record_verdict,
     op_start_run,
 )
 from amplifier_module_tool_claim_ledger.store import LedgerStore
+
+# This file exercises blocking-claim grouping/presentation and is deliberately
+# indifferent to the roster-coverage limb (4c, see test_roster_coverage.py) --
+# every run declares the empty-roster opt-out so the new `no-roster-declared`
+# backward-compat signal never masks what this file is actually testing.
+_EMPTY_ROSTER = {"mandatory": [], "conditional": {}}
 
 
 def _add(
@@ -29,6 +36,7 @@ def _add(
         store, {"run_id": run_id, "text": text, "type": claim_type, "source": source}
     )
     assert result["ok"] is True
+    op_declare_roster(store, {"run_id": result["run_id"], **_EMPTY_ROSTER})
     return result["claim_id"]
 
 

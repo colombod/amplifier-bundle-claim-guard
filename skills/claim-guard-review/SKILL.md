@@ -111,6 +111,34 @@ verification effort. This is the cheapest, highest-value checkpoint.
 
 ## Phase 3: Round 1 — Cold, Independent Fan-Out
 
+### Step 0 — Declare the roster BEFORE you fan out (or the run is INDETERMINATE)
+
+The bench you resolved in Phase 1 is a *decision*; `claim_ledger declare_roster` is what makes it
+**data the gate can check you against.** Call it with the literal `run_id`, **before** the fan-out:
+
+- **`mandatory`:** `correspondence-auditor` + `test-correspondence-auditor` — they run on every claim.
+- **`conditional`** (keyed by lens, each with `types`, `included`, `reason` — the Phase-1
+  include/exclude call, now recorded): `chokepoint-mapper` on `types: ["safety"]`,
+  `boundary-adversary` on `types: ["quantitative"]`. Declare an excluded lens with `included: false`
+  **and its reason** — that is what makes the exclusion auditable instead of a silent drop.
+- **Do NOT roster `empirical-verifier`** (nor any dynamic-probing lens such as `pen-tester`): it runs
+  only opportunistically, so rostering it mints a **permanent, unclosable** `lens-coverage-gap` on
+  every claim it did not reach.
+
+The roster is a **policy** — expected lenses are derived per claim from `(claim.type, roster)` on
+every read, so a Gate-A retype re-routes automatically with no re-declaration. Re-declaring mid-run
+is supported (the prior roster is kept in `roster_history`, never silently overwritten).
+
+**An undeclared roster makes the whole run INDETERMINATE.** Gate limb 4c emits `no-roster-declared`
+when claims were harvested with no roster, `lens-coverage-gap:<lens>@<claim_id>` when a rostered lens
+left **no trace** on a claim it was expected on (a recorded `record_lens_error` counts as a trace),
+and `roster-inconsistency:<lens>@<claim_id>` when a lens left a trace on a claim it was not expected
+on. Unknown coverage is not full coverage. The only opt-out is an **explicitly empty roster** (no
+`mandatory`, no `conditional`), which says "no lens policy asserted" out loud — skipping the call is
+not an opt-out.
+
+### Step 1 — Fan out
+
 For each rostered verdict lens, `delegate` an **isolated** sub-session (`context_depth="none"`) that
 reads the ledger claims + the neutral digest and records a verdict per claim to the ledger. **No
 lens sees another lens's output** — independence is the whole point. Launch them concurrently.
@@ -142,6 +170,15 @@ BLOCK/PASS/INDETERMINATE verdict. **Do not re-weigh or soften the result in pros
 and the coverage line verbatim. This is the divergence from a design council: the gate verdict is
 data + a mechanical rule, not an LLM's judgment — so an LLM never assembles it.
 
+**Read `advisory_reasons`, and say what it means.** A run whose `probe_scope` is `"out-of-scope"` (a
+**static-only** run — what the `verify-claims` MVP declares) never had the mandate to gather dynamic
+adverse-state evidence, so a safety claim with no adverse-state test does **not** block it: the gate
+lists it on **`advisory_reasons`** as `unprobed-safety-claim:<claim_id>`, counted in
+`coverage.advisory` and deliberately kept out of the verdict. Surface those advisories plainly —
+they are **unprobed safety claims, not cleared ones.** Under the default `probe_scope: "in-scope"`
+the same gap blocks as `no-adverse-state-test` (limb 2); a waiver clears the limb identically under
+either scope.
+
 ---
 
 ## Phase 5: Debate-to-Consensus Loop (you own this)
@@ -158,12 +195,19 @@ Default **`max_rounds = 3`** (`max_rounds=1` degrades cleanly to a single pass).
 
    No open items → skip to synthesis.
 
-2. **Rounds 2…N (cross-examination), capped at `max_rounds`.** Re-convene **each lens** in a fresh
-   isolated sub-session (`context_depth="none"`). **Inject ALL other lenses' verbatim last-words —
-   NO concierge curation.** Relay everything; never pre-select what is "relevant" — curating
-   reintroduces the silent-filtering risk the design rejects. Record the relayed payloads to the
-   ledger (`claim_ledger record_debate`) so the relay is auditable. Ask each lens to **hold / revise
-   / concede — in its own voice, with reasons.**
+2. **Rounds 2…N (cross-examination), capped at `max_rounds`.** Re-convene **only the lenses party to
+   an open item** — a lens holding an unresolved REFUTED, a lens on either side of a direct conflict,
+   or a lens whose verdict bears on an UNTESTABLE under adjudication. **Recompute the party set at the
+   start of every round:** a finding surfaced in round *N* can pull a previously-quiet lens back in.
+   A lens with no stake in any open item is **not re-invoked**, and its Round-1 verdict stands
+   unchanged — silence is not concession, it is an untouched verdict.
+
+   **This scopes *which* lenses run — never *what* a re-convened lens sees.** For every lens you DO
+   re-convene: a fresh isolated sub-session (`context_depth="none"`), and **inject ALL other lenses'
+   verbatim last-words — NO concierge curation.** Relay everything; never pre-select what is
+   "relevant" — curating reintroduces the silent-filtering risk the design rejects. Record the
+   relayed payloads to the ledger (`claim_ledger record_debate`) so the relay is auditable. Ask each
+   lens to **hold / revise / concede — in its own voice, with reasons.**
 
 3. **The evidence ratchet (hard rule):** a lens may move a verdict *away from* REFUTED **only by
    citing new `file:line` evidence.** Prose alone cannot clear a REFUTED — the ledger enforces this.
@@ -184,7 +228,21 @@ not a gavel; the human resolves genuine conflicts (and records any waiver).
 2. **Lead with the gate verdict** exactly as the tool computed it (BLOCK/PASS/INDETERMINATE) and the
    coverage line (`claims harvested / verified / deferred / waived`).
 3. **Surface every unresolved REFUTED and every missing-adverse-state-test safety claim at the TOP**
-   as blockers. **Never downgrade a REFUTED.** You may interpret and weigh; dissent stays visible.
+   as blockers. **Never downgrade a REFUTED** — that rule binds *your own synthesis judgment* (and
+   any lens's): no interpretation or softening prose may make a REFUTED read as something lesser. It
+   is **distinct from the sanctioned `waive` op**, which under the `blocking-with-waiver` policy
+   *can* clear a REFUTED — but only as a policy-gated, audited **human** decision recorded on the
+   ledger with an explicit `by` + `reason`. A waiver is attributable and made in the open; a
+   downgrade is you quietly deciding the finding matters less. You may interpret and weigh; dissent
+   stays visible.
+   - **Group REFUTED claims that share ONE counter-case into ONE root defect.** When several REFUTED
+     claims are refuted by the *same* counter-case (the same unguarded path, the same off-by-one, the
+     same missing await), present them as a **single root defect** — counter-case stated once, member
+     claim IDs listed beneath it — rather than N independent blockers that read like N separate bugs.
+     This is **presentation only**: the gate data is untouched, every REFUTED still blocks, every
+     member claim ID stays individually visible, and the counts stay the tool's. Claims with
+     **different** counter-cases are **never** merged — sharing a file, a symbol, or a theme is not
+     sharing a counter-case.
 4. **Attribute every finding to a named lens** and **quote at least one verbatim line per lens.** No
    anonymous synthesis.
 5. **Keep REFUTED, UNTESTABLE, and N/A distinguishable** — a blocker must never be confused with an
